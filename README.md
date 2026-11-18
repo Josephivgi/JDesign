@@ -6,9 +6,11 @@ JDesign puts two AI studios in one Windows app: **Video** (the JV editor) and **
 
 - **Video**: describe the video and an agent cuts, captions, voices and animates it. Details below.
 - **Draw**: agents draw on a canvas through their own tools. Exports can be added to the Video library.
-- One theme (Light, Dark or System) across both studios. Data lives in `%APPDATA%JDesign` (set `JDESIGN_USER_DATA` to use another folder).
+- One theme (Light, Dark or System) across both studios. Data lives in `%APPDATA%\JDesign` (set `JDESIGN_USER_DATA` to use another folder).
 
 Requires Node.js and Electron 45 (installed by `npm install`). Agents need their own CLI installed and signed in.
+
+Known beta gaps: no installer yet; the two studios keep separate agent lists and chats; the "Drive JV from your own agent" section below is inherited from JV and its install script still targets JV paths, not JDesign.
 
 ---
 
