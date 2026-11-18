@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8a7cff"/>
+      <stop offset="0.55" stop-color="#6b5cff"/>
+      <stop offset="1" stop-color="#4433c9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.2" r="0.8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ink" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#3ee0c0"/>
+      <stop offset="0.5" stop-color="#ffd25e"/>
+      <stop offset="1" stop-color="#ff6b8a"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e4e0ff"/>
+    </linearGradient>
+    <filter id="sh" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#1c1260" flood-opacity="0.35"/>
+    </filter>
+    <clipPath id="tile"><rect x="32" y="32" width="960" height="960" rx="224"/></clipPath>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg)"/>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#glow)"/>
+  <g clip-path="url(#tile)">
+  <!-- drawn stroke -->
+  <path d="M190 742 C 260 560, 380 820, 470 640 S 550 510, 590 560" fill="none"
+        stroke="url(#ink)" stroke-width="84" stroke-linecap="round" stroke-linejoin="round" filter="url(#sh)"/>
+  <!-- pencil -->
+  <g transform="translate(590 560) rotate(-45) scale(1.2)" filter="url(#sh)">
+    <path d="M0 0 L70 -40 L70 40 Z" fill="#ffd9b0"/>
+    <path d="M0 0 L26 -15 L26 15 Z" fill="#2a2150"/>
+    <rect x="70" y="-40" width="210" height="80" fill="url(#body)"/>
+    <rect x="70" y="-40" width="210" height="26" fill="#ffffff"/>
+    <rect x="280" y="-40" width="34" height="80" fill="#c9c2ff"/>
+    <rect x="314" y="-40" width="62" height="80" rx="24" fill="#ff6b8a"/>
+  </g>
+  </g>
+  <!-- sparkle (agent) -->
+  <path d="M300 230 C 312 300, 330 318, 400 330 C 330 342, 312 360, 300 430 C 288 360, 270 342, 200 330 C 270 318, 288 300, 300 230 Z" fill="#ffffff"/>
+  <path d="M440 170 C 446 202, 454 210, 486 216 C 454 222, 446 230, 440 262 C 434 230, 426 222, 394 216 C 426 210, 434 202, 440 170 Z" fill="#ffffff" opacity="0.85"/>
+</svg>

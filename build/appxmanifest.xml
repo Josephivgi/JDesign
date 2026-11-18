@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  electron-builder AppX manifest template with Cutline changes:
+  1. AppData and registry write virtualization are off (%APPDATA%\Cutline).
+  2. Static capabilities list Cutline on Windows privacy pages by name.
+  3. graphicsCaptureProgrammatic (uap11) for programmatic screen capture.
+  Do not change Identity Name Cutline.Desktop or drop DeviceCapability
+  microphone / webcam. That is what creates the Cutline row in Settings.
+-->
+<!--suppress XmlUnusedNamespaceDeclaration -->
+<Package
+   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+   xmlns:uap6="http://schemas.microsoft.com/appx/manifest/uap/windows10/6"
+   xmlns:uap11="http://schemas.microsoft.com/appx/manifest/uap/windows10/11"
+   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+   xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+   IgnorableNamespaces="uap uap6 uap11 desktop desktop6 rescap">
+  <!-- use single quotes to avoid double quotes escaping in the publisher value  -->
+  <Identity Name="${identityName}"
+    ProcessorArchitecture="${arch}"
+    Publisher='${publisher}'
+    Version="${version}" />
+  <Properties>
+    <DisplayName>${displayName}</DisplayName>
+    <PublisherDisplayName>${publisherDisplayName}</PublisherDisplayName>
+    <Description>${description}</Description>
+    <Logo>${logo}</Logo>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+  </Properties>
+  <Resources>
+    ${resourceLanguages}
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="${minVersion}" MaxVersionTested="${maxVersionTested}" />
+  </Dependencies>
+  <Capabilities>
+    <Capability Name="internetClient"/>
+    <rescap:Capability Name="runFullTrust"/>
+    <uap6:Capability Name="graphicsCapture"/>
+    <uap11:Capability Name="graphicsCaptureProgrammatic"/>
+    <DeviceCapability Name="microphone"/>
+    <DeviceCapability Name="webcam"/>
+  </Capabilities>
+  <Applications>
+    <Application Id="${applicationId}" Executable="${executable}" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+       BackgroundColor="${backgroundColor}"
+       DisplayName="${displayName}"
+       Square150x150Logo="${square150x150Logo}"
+       Square44x44Logo="${square44x44Logo}"
+       Description="${description}">
+        ${lockScreen}
+        ${defaultTile}
+        ${splashScreen}
+      </uap:VisualElements>
+      ${extensions}
+    </Application>
+  </Applications>
+</Package>

@@ -1,0 +1,442 @@
+import { api, store, on, emit, refreshProjects, defaultHarnessId, thumbFor } from "../store.js";
+import { esc, icon, toast, showMenu, confirmDialog, promptDialog, autosize, timeAgo, errorText } from "../ui.js";
+import { mediaChip, pickMedia, wireDrop, importPaths } from "../media.js";
+import { agentPickerButton, agentName, openAgentMenu, loadModels, modelPickerButton, openModelMenu } from "../agent-ui.js";
+import { attachSlashMenu, fetchSlashCommands, workflowFor } from "../slash.js";
+import { mountGallery } from "../gallery.js";
+import { attachMic } from "../voice.js";
+
+const RATIOS = [
+  { id: "16/9", label: "16:9", sub: "YouTube, landscape" },
+  { id: "9/16", label: "9:16", sub: "Shorts, Reels, TikTok" },
+  { id: "1/1", label: "1:1", sub: "Square" },
+  { id: "4/5", label: "4:5", sub: "Feed portrait" },
+];
+
+// Ideas start a workflow. The ones that work on footage ask for a video
+// first when none is attached, so the agent never starts with nothing.
+// `finish` ideas end mid-sentence on purpose: the caret waits for the rest.
+const IDEAS = [
+  { text: "/animate A 10 second animated logo intro for my channel called ", label: "Animated logo intro", finish: "your channel name" },
+  { text: "/explainer A 15 second explainer about ", label: "Make an explainer", finish: "what it is about" },
+  { text: "/animate A title card that says Coming Soon", label: "Coming soon card" },
+  { text: "/short ", label: "Make a vertical short", clip: true },
+  { text: "/captions ", label: "Add captions", clip: true },
+  { text: "/edit Cut this into a 30 second highlight", label: "30 second highlight", clip: true },
+];
+
+// What the launcher holds survives a trip to another page.
+const draft = { text: "", pins: [], ratio: "16/9", harnessId: "", picked: false, modelId: "", modelFor: "" };
+// Project list view state, kept across page visits.
+const list = { query: "", sort: "recent" };
+const SEARCH_AT = 6;
+
+// What a person needs to know at a glance: is there anything in it yet, and
+// is there a finished video.
+function projectStatus(project) {
+  const renders = project.state && project.state.renders ? Object.keys(project.state.renders).length : 0;
+  const clips = (project.assets || []).length;
+  if (renders) return { label: renders === 1 ? "Video ready" : renders + " videos ready", ready: true };
+  if (clips) return { label: clips === 1 ? "1 clip" : clips + " clips", ready: false };
+  return { label: "Empty", ready: false };
+}
+
+function sortedProjects(projects) {
+  const q = list.query.trim().toLowerCase();
+  const rows = projects.filter((p) => !q || String(p.name || "").toLowerCase().includes(q));
+  if (list.sort === "name") return rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  return rows.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+}
+
+function projectThumb(project) {
+  const sel = project.state && project.state.selectedAssetId;
+  const renders = project.state && project.state.renders ? Object.values(project.state.renders) : [];
+  const ids = renders.concat(sel ? [sel] : [], (project.assets || []).map((a) => a.id));
+  for (const id of ids) {
+    const src = thumbFor(store.mediaById(id));
+    if (src) return '<img src="' + esc(src) + '" alt="" loading="lazy" draggable="false">';
+  }
+  // No picture yet: say so plainly, in the project's frame shape.
+  const [w, h] = String(project.aspectRatio || "16/9").split("/").map(Number);
+  const ratio = w && h ? w / h : 16 / 9;
+  const style = ratio >= 1 ? "width:46%;aspect-ratio:" + w + "/" + h : "height:62%;aspect-ratio:" + w + "/" + h;
+  return '<span class="proj-frame" style="' + style + '">' + icon("plus", "i-sm") + '</span><span class="proj-empty-text">No media yet</span>';
+}
+
+// A short name from the prompt: drop the asking words, keep the subject, cut
+// at a word, never end on "the" or "with".
+const FILLER = /^(hey|hi|ok|okay|so|please|pls|can you|could you|would you|will you|i want( you)? to|i need( you)? to|i'?d like( you)? to|help me|let'?s|go( in(to)?)?|make( me)? an?|make me|create an?|an?|for me)\b[\s,]*/i;
+const TRAILING = /\s+(a|an|the|and|or|of|to|in|on|at|with|for|from|about|how|that|this|my|i|it|is|are|be|so|but|by|as)$/i;
+export function nameFrom(text) {
+  let clean = String(text || "").split(/\n/)[0].replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+  for (let i = 0; i < 4 && FILLER.test(clean); i += 1) clean = clean.replace(FILLER, "");
+  clean = clean.replace(/[.,;:!?]+$/, "");
+  if (!clean) return "";
+  // First clause only: "... with captions, and an intro" stops at the comma.
+  clean = clean.split(/[.;:!?](?=\s|$)|,\s/)[0];
+  let words = clean.split(" ");
+  let out = "";
+  for (const w of words) {
+    if ((out + " " + w).trim().length > 38) break;
+    out = (out + " " + w).trim();
+  }
+  if (!out) out = words[0].slice(0, 38);
+  while (TRAILING.test(out)) out = out.replace(TRAILING, "");
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+// "Untitled project", then "Untitled project 2", 3... so blank ones differ.
+function untitledName() {
+  const taken = new Set((store.projects || []).map((p) => p.name));
+  if (!taken.has("Untitled project")) return "Untitled project";
+  let n = 2;
+  while (taken.has("Untitled project " + n)) n += 1;
+  return "Untitled project " + n;
+}
+
+const isEmptyProject = (p) => !(p.assets || []).length && !(p.state && p.state.renders && Object.keys(p.state.renders).length);
+
+// "/animate a logo sting" names the project "a logo sting", and a bare
+// "/animate" takes the command's label, never the slash text.
+function projectName(text, harnessId) {
+  const flow = workflowFor(text, harnessId);
+  if (!flow) return nameFrom(text) || untitledName();
+  const args = String(text).replace(/^\/[a-z0-9-]+\s*/i, "");
+  return nameFrom(args) || flow.label;
+}
+
+export function renderHome(main) {
+  let mic = null; // the prompt box's voice input
+  // Follow the default agent from Settings until the person picks one here.
+  if (!draft.picked || !draft.harnessId) draft.harnessId = defaultHarnessId();
+  // A model picked for one agent means nothing to another.
+  const syncModel = () => {
+    if (draft.modelFor !== draft.harnessId) {
+      draft.modelId = "";
+      draft.modelFor = draft.harnessId;
+    }
+    if (draft.harnessId) void loadModels(draft.harnessId);
+  };
+  syncModel();
+  main.innerHTML = '<div class="page" data-home><div class="page-inner" data-inner></div></div>';
+  const inner = main.querySelector("[data-inner]");
+
+  const paint = () => {
+    const projects = store.projects || [];
+    const ratio = RATIOS.find((r) => r.id === draft.ratio) || RATIOS[0];
+    // With no agent installed, Create would only lead to an error. Say what
+    // is missing and where to fix it instead.
+    const ready = (store.harnesses || []).some((h) => h.available);
+    const setup = ready
+      ? ""
+      : '<div class="notice warn launch-setup">' + icon("alert") +
+        '<span class="grow"><strong>No AI agent is ready yet.</strong> JV needs an agent such as Claude Code or OpenCode installed on this computer to edit your videos.</span>' +
+        '<button type="button" class="btn btn-sm btn-primary" data-setup>Set up an agent</button></div>';
+    // Returning people see their own work first; the design gallery follows.
+    const projectsFirst = projects.length > 0;
+    const empties = projects.filter(isEmptyProject);
+    const projectsHtml =
+      '<div class="section-title">Projects <span class="count">' + projects.length + "</span>" +
+      '<span class="grow"></span>' +
+      (empties.length > 1 ? '<button type="button" class="btn btn-sm btn-ghost" data-clean-empty title="Delete projects that have no media and no video">' + icon("trash", "i-sm") + "Remove " + empties.length + " empty</button>" : "") +
+      (projects.length > SEARCH_AT
+        ? '<div class="search proj-search">' + icon("search") + '<input class="input" data-proj-q placeholder="Search projects" aria-label="Search projects" value="' + esc(list.query) + '"></div>' +
+          '<button type="button" class="picker" data-proj-sort title="Sort projects">' + icon("sort", "i-sm") + "<span>Sort: " + esc(list.sort === "name" ? "Name" : "Recent") + "</span>" + icon("chevDown", "i-sm chev") + "</button>"
+        : "") +
+      "</div>" +
+      '<div data-proj-list>' + projectList(projects) + "</div>";
+    inner.innerHTML =
+      '<section class="hero"><h1>What are we making?</h1><p>Describe the video. An agent edits it with your footage, or builds it from scratch.</p></section>' +
+      setup +
+      '<form class="launch" data-launch>' +
+      '<div class="launch-pins" data-pins></div>' +
+      '<textarea data-launch-input rows="3" aria-label="Describe the video" placeholder="A 20 second recap of my match with captions and an upbeat intro">' + esc(draft.text) + "</textarea>" +
+      '<div class="launch-foot">' +
+      '<button type="button" class="icon-btn" data-attach title="Attach media from your library (optional)" aria-label="Attach media">' + icon("paperclip") + "</button>" +
+      '<button type="button" class="icon-btn" data-slash-open title="Workflows (type /)" aria-label="Workflows">' + icon("slash") + "</button>" +
+      '<button type="button" class="icon-btn mic-btn" data-mic aria-label="Talk instead of typing"></button>' +
+      '<button type="button" class="picker" data-ratio title="Frame">' + icon("ratio", "i-sm") + "<span>" + esc(ratio.label) + "</span>" + icon("chevDown", "i-sm chev") + "</button>" +
+      agentPickerButton(draft.harnessId, "data-agent") +
+      '<span data-home-model>' + (draft.harnessId ? modelPickerButton(draft.harnessId, draft.modelId, null, "data-model") : "") + "</span>" +
+      '<span class="grow"></span>' +
+      '<button type="button" class="btn btn-ghost" data-blank title="Start an empty project and add clips yourself">' + icon("plus", "i-sm") + "<span>Blank project</span></button>" +
+      '<button type="submit" class="btn btn-primary" data-create' + (ready ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
+      "</div></form>" +
+      '<div class="chips">' + IDEAS.map((idea, i) => '<button type="button" class="chip" data-idea="' + i + '" title="' + esc(idea.text.trim()) + (idea.clip ? " (asks you to pick a video)" : "") + '">' + icon("sparkles", "i-sm") + esc(idea.label) + "</button>").join("") + "</div>" +
+      (projectsFirst ? projectsHtml + '<div class="gallery" data-gallery></div>' : '<div class="gallery" data-gallery></div>' + projectsHtml);
+    paintPins();
+    wire();
+  };
+
+  const paintModel = () => {
+    const el = inner.querySelector("[data-home-model]");
+    if (el) el.innerHTML = draft.harnessId ? modelPickerButton(draft.harnessId, draft.modelId, null, "data-model") : "";
+  };
+
+  function projectList(projects) {
+    if (!projects.length) return '<div class="card empty">' + icon("film", "i-xl") + "<h3>No projects yet</h3><p>Describe a video above, or start a blank project and add your clips.</p>" +
+      '<button type="button" class="btn btn-sm" data-blank style="margin-top:10px">' + icon("plus") + "Blank project</button></div>";
+    const rows = sortedProjects(projects.slice());
+    if (!rows.length) return '<div class="card empty"><p>No project matches “' + esc(list.query) + '”.</p></div>';
+    return '<div class="grid">' + rows.map((p) => {
+      const status = projectStatus(p);
+      const empty = isEmptyProject(p);
+      return '<div class="proj" role="button" tabindex="0" data-open="' + esc(p.id) + '" title="Open ' + esc(p.name) + '">' +
+        '<div class="proj-thumb' + (empty ? " is-empty" : "") + '">' + projectThumb(p) + (status.ready ? '<span class="proj-badge">' + icon("checkCircle", "i-sm") + esc(status.label) + "</span>" : "") + "</div>" +
+        // The badge already says a video is ready, so the meta line does not repeat it.
+        '<div class="proj-meta"><strong class="ellipsis">' + esc(p.name) + "</strong><small>" + esc([status.ready ? "" : status.label, String(p.aspectRatio || "16/9").replace("/", ":"), timeAgo(p.updatedAt)].filter(Boolean).join(" · ")) + "</small></div>" +
+        '<button type="button" class="icon-btn icon-btn-sm proj-more" data-more="' + esc(p.id) + '" title="Project options" aria-label="Options for ' + esc(p.name) + '">' + icon("more") + "</button></div>";
+    }).join("") + "</div>";
+  }
+
+  // Search only redraws the list, so the box keeps focus while typing.
+  const paintList = () => {
+    const el = inner.querySelector("[data-proj-list]");
+    if (!el) return;
+    el.innerHTML = projectList(store.projects || []);
+    wireCards();
+  };
+
+  const blankProject = async () => {
+    try {
+      const project = await api.aiProjectCreate({ name: untitledName(), aspectRatio: draft.ratio, assetIds: draft.pins.slice() });
+      draft.pins = [];
+      await refreshProjects();
+      emit("navigate", { page: "editor", params: { projectId: project.id } });
+    } catch (error) {
+      toast(errorText(error), true);
+    }
+  };
+
+  const paintPins = () => {
+    const el = inner.querySelector("[data-pins]");
+    if (!el) return;
+    draft.pins = draft.pins.filter((id) => store.mediaById(id));
+    el.innerHTML = draft.pins.map((id) => mediaChip(store.mediaById(id))).join("");
+    el.style.paddingTop = draft.pins.length ? "12px" : "0";
+  };
+
+  const create = async () => {
+    const btn = inner.querySelector("[data-create]");
+    if (!btn || btn.disabled) return;
+    const text = draft.text.trim();
+    if (btn) btn.disabled = true;
+    try {
+      // A command typed without opening the menu still needs its label for the name.
+      if (text.startsWith("/")) await fetchSlashCommands({ harnessId: draft.harnessId });
+      const project = await api.aiProjectCreate({ name: projectName(text, draft.harnessId), aspectRatio: draft.ratio, assetIds: draft.pins.slice() });
+      store.pendingLaunch = text ? { projectId: project.id, text, harnessId: draft.harnessId, modelId: draft.modelId } : null;
+      draft.text = "";
+      draft.pins = [];
+      await refreshProjects();
+      emit("navigate", { page: "editor", params: { projectId: project.id } });
+    } catch (error) {
+      toast(errorText(error), true);
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  const wire = () => {
+    const box = inner.querySelector("[data-launch-input]");
+    autosize(box, 260);
+    if (mic) mic.destroy();
+    mic = attachMic(inner.querySelector("[data-mic]"), box, {
+      onText: () => {
+        if (store.prefs.micAutoSend) void create();
+      },
+    });
+    box.addEventListener("input", () => {
+      draft.text = box.value;
+      autosize(box, 260);
+    });
+    const slash = attachSlashMenu(box, {
+      host: inner.querySelector("[data-launch]"),
+      below: true,
+      scope: () => ({ harnessId: draft.harnessId }),
+      agentLabel: () => agentName(draft.harnessId),
+      // A new project has no footage unless media is attached, so commands
+      // that work on a clip are greyed out until something is attached. The
+      // agent's own commands belong to a running chat, not a new project.
+      disabled: (c) => {
+        const needs = String(c.needs || "").split(/\s*,\s*/);
+        if (needs.includes("elevenlabs") && store.elevenlabsReady === false) return "Add your ElevenLabs key in Settings > Voice and music first";
+        return needs.includes("clip") && !draft.pins.length ? "Attach a clip first, or open a project that has one" : "";
+      },
+      agentCommands: false,
+    });
+    inner.querySelector("[data-slash-open]").addEventListener("click", () => slash.openFromButton());
+    box.addEventListener("keydown", (event) => {
+      const ctrlSend = store.prefs.sendKey === "ctrl-enter";
+      if (event.key === "Enter" && (ctrlSend ? event.ctrlKey || event.metaKey : !event.shiftKey)) {
+        event.preventDefault();
+        void create();
+      }
+    });
+    inner.querySelector("[data-launch]").addEventListener("submit", (event) => {
+      event.preventDefault();
+      // Only Create (or Enter in the box) starts a project; a picker button
+      // inside the form must never submit it.
+      if (event.submitter && !event.submitter.matches("[data-create]")) return;
+      void create();
+    });
+    inner.querySelector("[data-attach]").addEventListener("click", async () => {
+      const items = await pickMedia({ title: "Attach media", confirm: "Attach", exclude: draft.pins, excludeLabel: "Attached" });
+      for (const item of items) if (!draft.pins.includes(item.id)) draft.pins.push(item.id);
+      paintPins();
+    });
+    inner.querySelector("[data-pins]").addEventListener("click", (event) => {
+      const x = event.target.closest("[data-unpin]");
+      if (!x) return;
+      draft.pins = draft.pins.filter((id) => id !== x.dataset.unpin);
+      paintPins();
+    });
+    inner.querySelector("[data-ratio]").addEventListener("click", (event) => {
+      showMenu(event.currentTarget, RATIOS.map((r) => ({ label: r.label, sub: r.sub, checked: r.id === draft.ratio, onSelect: () => { draft.ratio = r.id; paint(); } })), { width: 220 });
+    });
+    inner.querySelector("[data-agent]").addEventListener("click", (event) => {
+      openAgentMenu(event.currentTarget, draft.harnessId, (id) => {
+        draft.harnessId = id;
+        draft.picked = true;
+        syncModel();
+        paint();
+      });
+    });
+    inner.querySelector("[data-home-model]").addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-model]");
+      if (!btn || btn.disabled) return;
+      openModelMenu(btn, draft.harnessId, draft.modelId, null, (modelId) => {
+        draft.modelId = modelId;
+        paintModel();
+      });
+    });
+    const setupBtn = inner.querySelector("[data-setup]");
+    if (setupBtn) setupBtn.addEventListener("click", () => emit("navigate", { page: "agents" }));
+    void mountGallery(inner.querySelector("[data-gallery]"), {
+      ratio: () => draft.ratio,
+      // The form could not say it: the agent gets the same choice as /animate.
+      onAsk: (text, ratio) => {
+        draft.text = text;
+        draft.ratio = ratio;
+        paint();
+        const b = inner.querySelector("[data-launch-input]");
+        if (b) {
+          b.focus();
+          b.setSelectionRange(b.value.length, b.value.length);
+        }
+      },
+      onMade: (projectId) => emit("navigate", { page: "editor", params: { projectId } }),
+    });
+    inner.querySelectorAll("[data-idea]").forEach((chip) =>
+      chip.addEventListener("click", async () => {
+        const idea = IDEAS[Number(chip.dataset.idea)];
+        if (!idea) return;
+        if (idea.clip && !draft.pins.some((id) => (store.mediaById(id) || {}).kind === "video")) {
+          if (!store.library.some((item) => item.kind === "video")) {
+            toast("Add a video in Library first, or drop one on this page.", true);
+            return;
+          }
+          const items = await pickMedia({ title: "Pick the video to use", confirm: "Use it", exclude: draft.pins, excludeLabel: "Attached", kinds: ["video"] });
+          const videos = items.filter((item) => item.kind === "video");
+          if (!videos.length) {
+            if (items.length) toast("Pick a video for this one.", true);
+            return;
+          }
+          for (const item of videos) if (!draft.pins.includes(item.id)) draft.pins.push(item.id);
+          paintPins();
+        }
+        draft.text = idea.text;
+        box.value = draft.text;
+        autosize(box, 260);
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+        if (idea.finish) toast("Add " + idea.finish + ", then press Create.", "info");
+      }),
+    );
+    const clean = inner.querySelector("[data-clean-empty]");
+    if (clean) clean.addEventListener("click", async () => {
+      const empties = (store.projects || []).filter(isEmptyProject);
+      const ok = await confirmDialog({ title: "Remove " + empties.length + " empty projects?", body: "These projects have no media and no video: " + empties.slice(0, 8).map((p) => p.name).join(", ") + (empties.length > 8 ? ", and more" : "") + ". Their chats are removed too.", confirm: "Remove", danger: true });
+      if (!ok) return;
+      for (const p of empties) await api.aiProjectDelete({ id: p.id }).catch((e) => toast(errorText(e), true));
+      await refreshProjects();
+      toast("Empty projects removed");
+    });
+    inner.querySelectorAll("[data-blank]").forEach((b) => b.addEventListener("click", () => void blankProject()));
+    const q = inner.querySelector("[data-proj-q]");
+    if (q) q.addEventListener("input", () => {
+      list.query = q.value;
+      paintList();
+    });
+    const sortBtn = inner.querySelector("[data-proj-sort]");
+    if (sortBtn) sortBtn.addEventListener("click", () => showMenu(sortBtn, [
+      { label: "Recent", sub: "Last changed first", checked: list.sort === "recent", onSelect: () => { list.sort = "recent"; paint(); } },
+      { label: "Name", sub: "A to Z", checked: list.sort === "name", onSelect: () => { list.sort = "name"; paint(); } },
+    ], { width: 200, align: "end" }));
+    wireCards();
+  };
+
+  const wireCards = () => {
+    inner.querySelectorAll("[data-open]").forEach((card) => {
+      const open = () => emit("navigate", { page: "editor", params: { projectId: card.dataset.open } });
+      card.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-more]")) open();
+      });
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") open();
+      });
+    });
+    inner.querySelectorAll("[data-more]").forEach((btn) =>
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const project = (store.projects || []).find((p) => p.id === btn.dataset.more);
+        if (!project) return;
+        showMenu(btn, [
+          { label: "Open", icon: "chevRight", onSelect: () => emit("navigate", { page: "editor", params: { projectId: project.id } }) },
+          { label: "Rename", icon: "pencil", onSelect: async () => {
+            const name = await promptDialog({ title: "Rename project", value: project.name });
+            if (!name) return;
+            await api.aiProjectUpdate({ id: project.id, patch: { name } }).catch((e) => toast(errorText(e), true));
+            await refreshProjects();
+          } },
+          "sep",
+          { label: "Delete project", icon: "trash", danger: true, onSelect: async () => {
+            const ok = await confirmDialog({ title: "Delete " + project.name + "?", body: "The project and its chats are removed. Media stays in your library, and renders stay until you clean them up.", confirm: "Delete", danger: true });
+            if (!ok) return;
+            await api.aiProjectDelete({ id: project.id }).catch((e) => toast(errorText(e), true));
+            await refreshProjects();
+            toast("Project deleted");
+          } },
+        ], { align: "end" });
+      }),
+    );
+  };
+
+  paint();
+  // Files dropped anywhere on Home are imported and attached to the launcher.
+  const pageEl = main.querySelector("[data-home]");
+  wireDrop(pageEl, async (paths) => {
+    const items = await importPaths(paths);
+    for (const item of items) if (!draft.pins.includes(item.id)) draft.pins.push(item.id);
+    paintPins();
+  }, "is-drop");
+  const offs = [
+    on("projects", paint),
+    on("snapshot", paintPins),
+    on("harnesses", () => {
+      if (!draft.picked || !draft.harnessId) draft.harnessId = defaultHarnessId();
+      syncModel();
+      paint();
+    }),
+    on("models", ({ harnessId }) => {
+      if (harnessId === draft.harnessId) paintModel();
+    }),
+  ];
+  setTimeout(() => {
+    const box = inner.querySelector("[data-launch-input]");
+    if (box && !store.projects?.length) box.focus();
+  }, 0);
+  return () => {
+    if (mic) mic.destroy();
+    offs.forEach((off) => off());
+  };
+}

@@ -1,0 +1,52 @@
+{
+  "name": "jdesign",
+  "version": "1.1.0",
+  "private": true,
+  "description": "JDesign: AI video editor and drawing app in one window, driven by ACP agents",
+  "author": "JSystems",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "node scripts/start-dev.cjs",
+    "start:electron": "electron .",
+    "mcp": "node lib/mcp-stdio.js",
+    "mcp:install": "node scripts/mcp-install.cjs",
+    "check:mcp": "node scripts/mcp-tools-check.cjs",
+    "check:mcp:errors": "node scripts/mcp-error-check.cjs",
+    "quality": "node scripts/quality-report.cjs",
+    "build:win": "electron-builder --win dir",
+    "generate:icons": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-logo.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icon.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-appx-assets.ps1",
+    "smoke:draw": "electron . --draw-smoke",
+    "smoke": "electron . --smoke"
+  },
+  "build": {
+    "appId": "com.jsystems.jdesign",
+    "productName": "JDesign",
+    "asar": false,
+    "directories": {
+      "output": "dist-app",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "draw/**",
+      "lib/**",
+      "renderer/**",
+      "skills/**",
+      "package.json"
+    ],
+    "win": {
+      "icon": "renderer/logo.png",
+      "signtoolOptions": {
+        "sign": "./scripts/sign-win.cjs"
+      },
+      "target": [
+        "dir"
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "^26.15.3"
+  }
+}
