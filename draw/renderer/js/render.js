@@ -105,8 +105,12 @@
       const nx = pts[i + 1];
       const mx = nx ? (cx + nx[0]) / 2 : cx, my = nx ? (cy + nx[1]) / 2 : cy;
       if (i === 1) { seg[0].dx = 2 * (cx - px); seg[0].dy = 2 * (cy - py); }
-      for (let k = 1; k <= 5; k++) {
-        const t = k / 5, mt = 1 - t;
+      // Sample each piece in proportion to its length: a few hundred px of
+      // curve needs more than five chords or the edge reads faceted.
+      const pieceLen = Math.hypot(mx - px, my - py) || Math.hypot(cx - px, cy - py);
+      const K = Math.max(3, Math.min(16, Math.ceil(pieceLen / 6)));
+      for (let k = 1; k <= K; k++) {
+        const t = k / K, mt = 1 - t;
         seg.push({
           x: mt * mt * px + 2 * mt * t * cx + t * t * mx,
           y: mt * mt * py + 2 * mt * t * cy + t * t * my,
@@ -125,29 +129,39 @@
   // Paints a variable-width stroke as one outline: down the left edge, around
   // a round cap at the end, back up the right edge, around the start. There
   // are no segment joints, so the silhouette stays one clean curve.
-  function ribbon(ctx, spine, halfAt) {
+  function ribbon(ctx, spine, halfAt, opts) {
+    const o = opts || {};
     const n = spine.length;
     if (!n) return;
+    const dirAt = o.dirAt || ((s) => { const d = Math.hypot(s.dx, s.dy) || 1; return { x: -s.dy / d, y: s.dx / d }; });
     const L = new Array(n), R = new Array(n), W = new Array(n);
+    for (let k = 0; k < n; k++) W[k] = Math.max(0.3, halfAt(spine[k]));
+    // Where the spine bends tighter than the half-width, the inner edge would
+    // cross the outer and leave an unfilled wedge or a knife point. Shrink the
+    // width to just under the local turn radius so the edges can never cross.
+    for (let k = 1; k < n - 1; k++) {
+      const a = spine[k - 1], b = spine[k], c = spine[k + 1];
+      const ang = Math.abs(Math.atan2(a.dx * c.dy - a.dy * c.dx, a.dx * c.dx + a.dy * c.dy));
+      const ds = (Math.hypot(b.x - a.x, b.y - a.y) + Math.hypot(c.x - b.x, c.y - b.y)) / 2;
+      if (ang > 1e-4 && ds > 0) { const r = ds / ang; if (r < W[k]) W[k] = Math.max(0.3, r * 0.95); }
+    }
     for (let k = 0; k < n; k++) {
       const s = spine[k];
-      const d = Math.hypot(s.dx, s.dy) || 1;
-      const w = Math.max(0.3, halfAt(s));
-      W[k] = w;
-      L[k] = [s.x - (s.dy / d) * w, s.y + (s.dx / d) * w];
-      R[k] = [s.x + (s.dy / d) * w, s.y - (s.dx / d) * w];
+      const dir = dirAt(s), w = W[k];
+      L[k] = [s.x - dir.x * w, s.y - dir.y * w];
+      R[k] = [s.x + dir.x * w, s.y + dir.y * w];
     }
     // Direction the left edge leaves a spine point: the left normal's angle.
     const aL = (s) => { const d = Math.hypot(s.dx, s.dy); return d ? Math.atan2(s.dx / d, -s.dy / d) : 0; };
     ctx.beginPath();
     ctx.moveTo(L[0][0], L[0][1]);
     for (let k = 1; k < n; k++) ctx.lineTo(L[k][0], L[k][1]);
-    {
+    if (!o.flatCaps) {
       const s = spine[n - 1], w = W[n - 1], a0 = aL(s);
       for (let k = 1; k <= 6; k++) { const a = a0 - (Math.PI * k) / 6; ctx.lineTo(s.x + w * Math.cos(a), s.y + w * Math.sin(a)); }
-    }
+    } else ctx.lineTo(R[n - 1][0], R[n - 1][1]);
     for (let k = n - 1; k >= 0; k--) ctx.lineTo(R[k][0], R[k][1]);
-    {
+    if (!o.flatCaps) {
       const s = spine[0], w = W[0], a0 = aL(s);
       for (let k = 1; k <= 6; k++) { const a = a0 + Math.PI - (Math.PI * k) / 6; ctx.lineTo(s.x + w * Math.cos(a), s.y + w * Math.sin(a)); }
     }
@@ -159,7 +173,14 @@
   // laid down once with the stroke's opacity, so overlapping segments do not
   // build up darker spots.
   function strokePath(ctx, it) {
-    const pts = it.points;
+    // Near-duplicate points collapse: a doubled point left a dead derivative
+    // (a wedge start cap) or a real corner kink through the repeat.
+    const pts = [it.points[0]];
+    for (let k = 1; k < it.points.length; k++) {
+      const p = it.points[k], q = pts[pts.length - 1];
+      if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.01) pts.push(p);
+      else pts[pts.length - 1] = p; // keep the last pressure of the run
+    }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     if (pts.length === 1) {
@@ -169,23 +190,21 @@
       ctx.fill();
       return;
     }
+    // Pressure at a spine sample: piece i is centered on point i, so its ends
+    // carry the midpoint pressures of the points either side, not the points
+    // themselves (which landed the peak half a segment late).
+    const pressAt = (k) => pts[k][2] ?? 0.5;
+    const midPress = (k) => (k === 0 ? pressAt(0) : k === pts.length - 1 ? pressAt(k) : (pressAt(k) + pressAt(k + 1)) / 2);
+    const press = (s) => {
+      const l = s.i <= 0 ? pressAt(0) : midPress(s.i - 1), r = midPress(s.i);
+      return l + (r - l) * s.f;
+    };
     if (it.brush === "calligraphy") {
-      // A flat nib held at 45 degrees: each segment sweeps the nib, so the
-      // line is thick across the nib and thin along it.
-      const nx = Math.SQRT1_2, ny = -Math.SQRT1_2;
-      for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1], b = pts[i];
-        const ra = it.size / 2 * (0.35 + 0.65 * a[2]), rb = it.size / 2 * (0.35 + 0.65 * b[2]);
-        ctx.beginPath();
-        ctx.moveTo(a[0] - nx * ra, a[1] - ny * ra);
-        ctx.lineTo(a[0] + nx * ra, a[1] + ny * ra);
-        ctx.lineTo(b[0] + nx * rb, b[1] + ny * rb);
-        ctx.lineTo(b[0] - nx * rb, b[1] - ny * rb);
-        ctx.closePath();
-        ctx.fill();
-        ctx.lineWidth = Math.max(0.6, it.size * 0.06);
-        ctx.stroke();
-      }
+      // A flat nib held at 45 degrees: the nib direction is constant, so the
+      // stroke is one ribbon whose two edges sit nib-width apart along that
+      // direction, with flat caps where the nib lifts. One polygon, so a bend
+      // can never open a slit.
+      ribbon(ctx, strokeSpine(pts), (s) => (it.size / 2) * (0.35 + 0.65 * press(s)), { dirAt: () => ({ x: Math.SQRT1_2, y: -Math.SQRT1_2 }), flatCaps: true });
       return;
     }
     if (it.brush === "marker" || it.brush === "airbrush" || it.brush === "watercolor") {
@@ -209,10 +228,16 @@
         if (f < headF) w = headW + (1 - headW) * ease(f / headF);
         if (1 - f < tailF) w = Math.min(w, tailW + (1 - tailW) * ease((1 - f) / tailF));
         w *= 1 + 0.1 * Math.sin(f * Math.PI * swellN + swellP);
-        return Math.max(0.5, full * w);
+        // The last 2% runs to a point, so a tapered tail ends in a dry tip
+        // instead of a little round bulb the cap would otherwise leave.
+        if (1 - f < 0.02) w *= Math.max(0, (1 - f) / 0.02);
+        return Math.max(0.08, full * w);
       };
       if (total < 1) { ctx.lineWidth = full; ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]); ctx.stroke(); return; }
-      ribbon(ctx, strokeSpine(pts), (s) => (widthAt(Math.max(0, s.i - 1)) * (1 - s.f) + widthAt(s.i) * s.f) / 2);
+      // Piece i is centered on point i, so its ends carry the midpoint widths
+      // (same half-segment fix as the pen pressure below).
+      const midWidth = (k) => (k === 0 ? widthAt(0) : k === pts.length - 1 ? widthAt(k) : (widthAt(k) + widthAt(k + 1)) / 2);
+      ribbon(ctx, strokeSpine(pts), (s) => ((s.i <= 0 ? widthAt(0) : midWidth(s.i - 1)) * (1 - s.f) + midWidth(s.i) * s.f) / 2);
       if (it.brush !== "airbrush" && total > full * 3) {
         // Dry-brush tail: the last part of a long wash breaks into bristle
         // streaks, so the stroke ends in broken paint, not a clean point.
@@ -228,8 +253,14 @@
           let started = false;
           for (let i = 1; i < pts.length; i++) {
             if (along[i] / total < from) continue;
+            // The streak must stay inside the local taper: scale its offset
+            // by the width ratio here and stop once the stroke is narrower
+            // than the bristle line, or it gashes through the edge.
+            const w = widthAt(i);
+            if (started && w < ctx.lineWidth * 1.6) break;
+            const o = off * (w / full);
             const dx = pts[i][0] - pts[i - 1][0], dy = pts[i][1] - pts[i - 1][1], d = Math.hypot(dx, dy) || 1;
-            const x = pts[i][0] - dy / d * off, y = pts[i][1] + dx / d * off;
+            const x = pts[i][0] - dy / d * o, y = pts[i][1] + dx / d * o;
             if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
           }
           if (started) ctx.stroke();
@@ -240,10 +271,6 @@
       return;
     }
     // Variable width: pressure interpolates along the stroke, one clean ribbon.
-    const press = (s) => {
-      const a = pts[Math.max(0, s.i - 1)][2] ?? 0.5, b = pts[s.i][2] ?? 0.5;
-      return a + (b - a) * s.f;
-    };
     ribbon(ctx, strokeSpine(pts), (s) => Math.max(0.25, radiusAt(it, press(s))));
   }
 
@@ -444,7 +471,11 @@
     const t = ctx.getTransform();
     const b = G.bounds(it);
     // Device-space box of the stroke, clipped to the canvas.
-    const pad = 4 + (it.shadow ? it.shadow.blur * 2 : 0);
+    // The cleared region must cover what the blur filter samples, not just
+    // the drawn box: an airbrush blur reads ~3x its radius plus its shadow
+    // outside the box, and old pixels there leak back in as a fringe.
+    const reach = it.brush === "airbrush" ? Math.ceil(it.size * t.a * 1.4) : it.brush === "watercolor" ? Math.ceil(it.size * t.a * 0.3) : 0;
+    const pad = 4 + reach + (it.shadow ? it.shadow.blur * 2 : 0);
     const x0 = Math.max(0, Math.floor(b.x * t.a + t.e - pad));
     const y0 = Math.max(0, Math.floor(b.y * t.d + t.f - pad));
     const x1 = Math.min(ctx.canvas.width, Math.ceil((b.x + b.w) * t.a + t.e + pad));
