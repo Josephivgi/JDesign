@@ -10,6 +10,21 @@
     { t: "Sketch page", d: "2480 x 1754", w: 2480, h: 1754 },
   ];
 
+  let homeKeysBound = false;
+  function bindHomeKeys() {
+    if (homeKeysBound) return;
+    homeKeysBound = true;
+    window.addEventListener("keydown", (e) => {
+      if (!document.querySelector(".home") || document.querySelector(".scrim")) return;
+      if (window.isTyping && window.isTyping(e)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.shiftKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        jdraw.call("studio:switch", "video").catch(() => {});
+      }
+    });
+  }
+
   async function render(root, app) {
     root.innerHTML = "";
     const top = el(`<header class="topbar drag">
@@ -40,6 +55,7 @@
     top.querySelector('[data-studio="video"]').addEventListener("click", () => jdraw.call("studio:switch", "video"));
     top.querySelector(".settings-btn").addEventListener("click", () => openSettings());
     root.appendChild(top);
+    bindHomeKeys();
 
     const home = el(`<main class="home"><div class="home-inner">
       <h1>What are you drawing today?</h1>
