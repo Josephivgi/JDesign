@@ -35,8 +35,10 @@ function railMarkup() {
   return (
     '<nav class="rail" aria-label="Main">' +
     '<div class="rail-logo" aria-label="JDesign">JD</div>' +
-    '<button class="rail-link' + (inDraw ? "" : " is-on") + '" data-studio="video" title="Video studio">' + icon("film") + "<span>Video</span></button>" +
-    '<button class="rail-link' + (inDraw ? " is-on" : "") + '" data-studio="draw" title="Draw studio (Ctrl D)">' + icon("pencil") + "<span>Draw</span></button>" +
+    // The studio pair is one selection: Video Editor or Drawing. It is shown by
+    // a filled tile, never the page marker bar, so only one bar shows at a time.
+    '<button class="rail-link is-studio' + (inDraw ? "" : " is-on") + '" data-studio="video" title="Video Editor">' + icon("film") + "<span>Video Editor</span></button>" +
+    '<button class="rail-link is-studio' + (inDraw ? " is-on" : "") + '" data-studio="draw" title="Drawing (Ctrl D)">' + icon("pencil") + "<span>Drawing</span></button>" +
     NAV.map((item) =>
       '<button class="rail-link' + (page === item.page ? " is-on" : "") + '" data-nav="' + item.page + '" title="' + item.label + " (Ctrl " + item.key + ')">' +
       icon(item.icon) + "<span>" + item.label + "</span></button>",

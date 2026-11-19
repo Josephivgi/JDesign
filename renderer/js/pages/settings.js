@@ -40,7 +40,7 @@ const SECTIONS = [
 ];
 
 const ACCENTS = [
-  ["iris", "#7c6cff"], ["blue", "#3b82f6"], ["teal", "#14b8a6"], ["green", "#22c55e"], ["amber", "#f59e0b"], ["rose", "#f43f5e"],
+  ["mono", "#15161a"], ["iris", "#7c6cff"], ["blue", "#3b82f6"], ["teal", "#14b8a6"], ["green", "#22c55e"], ["amber", "#f59e0b"], ["rose", "#f43f5e"],
 ];
 
 let current = "general";
@@ -148,7 +148,7 @@ const PANES = {
       '<div class="set-group">' +
       row("Theme", "System follows your Windows setting.", seg("theme", p.theme || "system", [["system", "System", "monitor"], ["light", "Light", "sun"], ["dark", "Dark", "moon"]])) +
       row("Accent color", "Used for buttons, selection, and highlights.",
-        '<div class="swatches" data-accents>' + ACCENTS.map(([id, hex]) => '<button class="swatch' + ((p.accent || "iris") === id ? " is-on" : "") + '" data-accent="' + id + '" aria-pressed="' + ((p.accent || "iris") === id) + '" style="background:' + hex + '" title="' + id.charAt(0).toUpperCase() + id.slice(1) + '" aria-label="' + id.charAt(0).toUpperCase() + id.slice(1) + '"></button>').join("") + "</div>") +
+        '<div class="swatches" data-accents>' + ACCENTS.map(([id, hex]) => '<button class="swatch' + ((p.accent || "mono") === id ? " is-on" : "") + '" data-accent="' + id + '" aria-pressed="' + ((p.accent || "mono") === id) + '" style="background:' + hex + '" title="' + id.charAt(0).toUpperCase() + id.slice(1) + '" aria-label="' + id.charAt(0).toUpperCase() + id.slice(1) + '"></button>').join("") + "</div>") +
       row("Density", "Compact fits more on smaller screens.", seg("density", p.density || "comfortable", [["comfortable", "Comfortable"], ["compact", "Compact"]])) +
       "</div>";
     pane.querySelector("[data-accents]").addEventListener("click", (event) => {

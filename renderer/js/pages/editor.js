@@ -70,8 +70,9 @@ export function renderEditor(main, projectId) {
     project: null,
     mode: "source",
     outputId: "",
-    mediaOpen: store.prefs.mediaRailOpen !== false,
+    // Only one side panel opens at a time. The chat wins unless it was closed.
     chatOpen: store.prefs.chatOpen !== false,
+    mediaOpen: store.prefs.mediaRailOpen !== false && store.prefs.chatOpen === false,
     // The first paint opens on the finished video when there is one.
     firstPaint: true,
     playing: false,
@@ -341,10 +342,7 @@ export function renderEditor(main, projectId) {
         "</ol></div>";
       stage.querySelector("[data-guide-add]").addEventListener("click", addMedia);
       stage.querySelector("[data-guide-ask]").addEventListener("click", () => {
-        if (!st.chatOpen) {
-          st.chatOpen = true;
-          paintTop();
-        }
+        if (!st.chatOpen) toggleChat();
         if (chat) chat.focus();
       });
       fitStage();
@@ -638,15 +636,26 @@ export function renderEditor(main, projectId) {
       },
     }))), { align: "end", width: 260 });
   });
+  // Only one side panel is open at a time: opening one closes the other.
   const toggleMedia = () => {
     st.mediaOpen = !st.mediaOpen;
-    void setPrefs({ mediaRailOpen: st.mediaOpen });
+    const patch = { mediaRailOpen: st.mediaOpen };
+    if (st.mediaOpen && st.chatOpen) {
+      st.chatOpen = false;
+      patch.chatOpen = false;
+    }
+    void setPrefs(patch);
     paintTop();
     requestAnimationFrame(fitStage);
   };
   const toggleChat = () => {
     st.chatOpen = !st.chatOpen;
-    void setPrefs({ chatOpen: st.chatOpen });
+    const patch = { chatOpen: st.chatOpen };
+    if (st.chatOpen && st.mediaOpen) {
+      st.mediaOpen = false;
+      patch.mediaRailOpen = false;
+    }
+    void setPrefs(patch);
     paintTop();
     requestAnimationFrame(fitStage);
   };

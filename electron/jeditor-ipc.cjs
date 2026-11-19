@@ -12,7 +12,7 @@ const path = require("node:path");
 
 const PREF_DEFAULTS = Object.freeze({
   theme: "system", // system | light | dark
-  accent: "iris", // iris | blue | teal | green | amber | rose
+  accent: "mono", // mono | iris | blue | teal | green | amber | rose
   density: "comfortable", // comfortable | compact
   chatTextSize: "md", // sm | md | lg
   sendKey: "enter", // enter | ctrl-enter
@@ -32,7 +32,7 @@ const PREF_DEFAULTS = Object.freeze({
 
 const ENUMS = {
   theme: ["system", "light", "dark"],
-  accent: ["iris", "blue", "teal", "green", "amber", "rose"],
+  accent: ["mono", "iris", "blue", "teal", "green", "amber", "rose"],
   density: ["comfortable", "compact"],
   chatTextSize: ["sm", "md", "lg"],
   sendKey: ["enter", "ctrl-enter"],

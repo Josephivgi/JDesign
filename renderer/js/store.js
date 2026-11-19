@@ -108,7 +108,7 @@ export function applyLook() {
   const root = document.documentElement;
   const theme = resolvedTheme();
   root.dataset.theme = theme;
-  root.dataset.accent = store.prefs.accent || "iris";
+  root.dataset.accent = store.prefs.accent || "mono";
   root.dataset.density = store.prefs.density || "comfortable";
   root.dataset.chatSize = store.prefs.chatTextSize || "md";
   if (api && api.setChrome) api.setChrome({ theme, mode: store.prefs.theme || "system" }).catch(() => {});
