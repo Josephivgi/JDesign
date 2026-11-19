@@ -51,6 +51,8 @@ function attachAgentHub(options) {
     dataRoot,
     appRoot,
     windows,
+    mainWindow,
+    approvalVisibility: options.approvalVisibility,
     powerHold: holdSystemAwake,
     powerRelease: releaseSystemAwake,
     bridgeInfo: () => {

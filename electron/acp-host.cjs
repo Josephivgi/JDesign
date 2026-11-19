@@ -782,6 +782,36 @@ function createAcpHost(host, dependencies) {
     return text.length > 400 ? text.slice(0, 400) + "... (" + text.length + " characters)" : text;
   }
 
+  function bringPermissionWindowForward() {
+    const win = typeof host.mainWindow === "function" ? host.mainWindow() : null;
+    if (!win || win.isDestroyed()) return;
+    try {
+      if (!win.isVisible()) win.show();
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    } catch {
+      /* showing the window is best effort */
+    }
+  }
+
+  // Permission cards live in the JV chat; Draw's view would cover them.
+  function holdApprovalVisibility() {
+    let release = null;
+    try {
+      release = typeof host.approvalVisibility === "function" ? host.approvalVisibility() : null;
+    } catch {
+      release = null;
+    }
+    bringPermissionWindowForward();
+    return release;
+  }
+
+  function releaseApprovalVisibility(release) {
+    if (release) {
+      try { release(); } catch {}
+    }
+  }
+
   function askPermission(session, params, title, kind) {
     const requestId = "perm-" + randomUUID();
     const tool = (params && (params.toolCall || params.tool_call)) || {};
@@ -791,6 +821,7 @@ function createAcpHost(host, dependencies) {
     const shown = permissionPreview(input);
     const preview = clean(session, shown || (kind === "instructions" ? "" : "This agent did not share the script with JV."));
     const row = { role: "permission", requestId, tool: title, text: preview, status: "pending", kind: kind || "elevenlabs" };
+    const releaseApproval = holdApprovalVisibility();
     push(session, row);
     // push copies the entry into the transcript row; settlePermission must
     // mutate that stored row or the card never repaints out of pending.
@@ -804,7 +835,7 @@ function createAcpHost(host, dependencies) {
         timer: setTimeout(() => void settlePermission(session, requestId, "expired"), PERMISSION_TIMEOUT_MS),
       };
       session.permissions.set(requestId, pending);
-    });
+    }).finally(() => releaseApprovalVisibility(releaseApproval));
   }
 
   async function settlePermission(session, requestId, decision) {

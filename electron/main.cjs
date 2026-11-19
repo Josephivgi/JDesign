@@ -165,6 +165,7 @@ if (!SMOKE && !DRAW_SMOKE && !app.requestSingleInstanceLock()) {
 let currentStudio = "video";
 let drawStudio = null;
 let themeMode = null;
+// Agent approvals live in the JV page; keep Draw from covering them while one is pending.
 let approvalPrompts = 0;
 let approvalReturnStudio = null;
 function beginApprovalVisibility() {
