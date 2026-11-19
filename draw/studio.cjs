@@ -15,7 +15,6 @@ const G = require("./renderer/js/geom.js");
 // Draw's own hidden smoke (renderer/js/smoke.js) runs with --draw-smoke, so
 // JV's --smoke keeps meaning the video studio.
 const SMOKE = process.argv.includes("--draw-smoke");
-const DRIVE = false;
 const DEV = process.env.JDESIGN_DEV === "1" || process.env.JEDITOR_DEV === "1";
 
 let dataDir = null; // set by init(): <JDesign data>/draw
