@@ -11,6 +11,7 @@ const CATALOG = [
   { id: "opencode", name: "OpenCode", command: "opencode", args: ["acp"], install: "npm i -g opencode-ai" },
   { id: "gemini", name: "Gemini CLI", command: "gemini", args: ["--experimental-acp"], install: "npm i -g @google/gemini-cli" },
   { id: "codex", name: "Codex", command: "codex-acp", args: [], install: "npm i -g @zed-industries/codex-acp" },
+  { id: "devin", name: "Devin", command: "devin", args: ["acp"], install: "irm https://static.devin.ai/cli/setup.ps1 | iex" },
 ];
 
 function which(command) {
@@ -365,7 +366,9 @@ class AgentSession {
     if (/request_permission$/.test(msg.method)) {
       const p = msg.params || {};
       const tc = p.toolCall || {};
-      const text = `${tc.title || ""} ${JSON.stringify(tc.rawInput || {})} ${tc.toolCallId || ""}`;
+      // Devin sends no title; it names the tool in _meta's permissionRule.
+      const rule = (tc._meta && tc._meta["cognition.ai/permissionRule"]) || "";
+      const text = `${tc.title || ""} ${JSON.stringify(tc.rawInput || {})} ${tc.toolCallId || ""} ${rule}`;
       let ours = /mcp__jdraw__|\bjdraw[_:. ]|^(view_drawing|get_drawing|draw|draw_svg|edit_items|delete_items|recolor|set_palette|set_brush|canvas|layers)\b/i.test(tc.title || "") || /mcp__jdraw__/.test(text);
       if (ours && this.allowTools) {
         const m = text.match(/mcp__jdraw__(\w+)/) || String(tc.title || "").match(/^(\w+)/);
@@ -373,10 +376,11 @@ class AgentSession {
       }
       const opts = Array.isArray(p.options) ? p.options : [];
       const pick = (kinds) => opts.find((o) => kinds.includes(o.kind));
-      this.log(`permission ${ours ? "allow" : "deny"}: ${String(tc.title || "").slice(0, 120)}`);
+      const label = tc.title || rule;
+      this.log(`permission ${ours ? "allow" : "deny"}: ${String(label).slice(0, 120)}`);
       const choice = ours ? pick(["allow_always"]) || pick(["allow_once"]) : pick(["reject_once"]) || pick(["reject_always"]);
       if (!choice) return { outcome: { outcome: "cancelled" } };
-      if (!ours) this.emit({ type: "tool", id: tc.toolCallId || "deny-" + Date.now(), title: `Blocked: ${tc.title || "a tool outside JDraw"}`, status: "failed" });
+      if (!ours) this.emit({ type: "tool", id: tc.toolCallId || "deny-" + Date.now(), title: `Blocked: ${label || "a tool outside JDraw"}`, status: "failed" });
       return { outcome: { outcome: "selected", optionId: choice.optionId } };
     }
     return undefined;
