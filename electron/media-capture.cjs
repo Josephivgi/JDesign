@@ -928,4 +928,4 @@ function attachMediaCapture(host) {
   };
 }
 
-module.exports = { attachMediaCapture, APPX_PACKAGE_NAME };
+module.exports = { attachMediaCapture };
