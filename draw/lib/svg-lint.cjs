@@ -324,6 +324,13 @@ function lintSvg(svg, opts) {
   // (a compass line around the picture), never a painted form.
   const outlines = shapes.filter((s) => !s.fill && s.stroke && s.closed && s.segs.length <= 8 && !field(s.box) && area(s.box) >= 0.01 * A);
   if (outlines.length) add("outline-ring", `a closed outline with no fill at ${where(outlines[0].box)} (a drawn circle or ellipse floating over the picture)`, "Paint the form it stands for with filled shapes that have uneven edges and tones; a plain outline loop is never a sun, a wheel or a cloud.", outlines);
+  // Letterbox: an opaque dark bar flush with BOTH the top and the bottom edge
+  // is a pasted-on cinematic frame, not composition. One bar alone can be a
+  // real edge object (a sill, a stage edge); the pair is the tell.
+  const barAt = (edgeTest) => shapes.filter((s) => s.fill && !s.fade && (s.alpha ?? 1) >= 0.8 && (labOf(s.fill) || [1])[0] < 0.2 && s.box.w >= 0.85 * vb.w && s.box.h <= 0.12 * vb.h && edgeTest(s.box));
+  const topBars = barAt((x) => x.y <= vb.y + 0.02 * vb.h);
+  const botBars = barAt((x) => x.y + x.h >= vb.y + 0.98 * vb.h);
+  if (topBars.length && botBars.length) add("letterbox", "opaque dark bars along the top and bottom edges read as letterbox framing pasted on", "Compose inside the real frame; for a cinematic crop, change the canvas ratio with the canvas tool instead of painting strips.", topBars.concat(botBars));
   for (const s of filled) {
     const a = area(s.box);
     if (field(s.box)) continue;

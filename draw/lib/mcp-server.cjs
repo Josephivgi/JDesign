@@ -435,7 +435,7 @@ function createMcpServer(host) {
               if (it.points.length < 4) bad.push(`a stroke at ${at} has only ${it.points.length} points, so it reads as a ruler line: paint it with 6 to 20 points that bend with the form`);
               else {
                 const s = strokeShape(it.points);
-                if (s.len >= (it.size < 10 ? 60 : 120) && s.len < 600 && s.maxDev < 0.025 * s.len && fixes.set(raw, "ruler")) strokeBad.push(`a stroke at ${at} runs ruler-straight (it bends less than 2.5% along its length): bend it with the form, or split it into shorter passes that follow the shape`);
+                if (s.len >= (it.size < 10 ? 60 : 120) && s.maxDev < 0.025 * s.len && fixes.set(raw, "ruler")) strokeBad.push(`a stroke at ${at} runs ruler-straight (it bends less than 2.5% along its length): bend it with the form, or split it into shorter passes that follow the shape`);
                 else if (s.len >= 240 && s.chord < 0.08 * s.len && it.points.length >= 6 && fixes.set(raw, "ring")) strokeBad.push(`a ${it.brush || "pen"} stroke at ${at} closes on itself into a ring, which reads as a stock circle, a sausage cloud or a blob: open the stroke and build the form with overlapping passes of different lengths`);
                 else if (s.len >= 240 && it.points.length >= 8 && isCircleArc(it.points) && fixes.set(raw, "ring")) strokeBad.push(`a ${it.brush || "pen"} stroke at ${at} is a perfect circle arc (every point the same distance from one centre), which reads as a stock rainbow or a construction arc: draw the form with uneven passes that follow it, not a compass curve`);
                 // A pen, pencil or calligraphy stroke that never changes
@@ -446,16 +446,33 @@ function createMcpServer(host) {
                   if (ps.length >= 6 && Math.max(...ps) - Math.min(...ps) < 0.08 && (fixes.has(raw) || fixes.set(raw, "press"))) strokeBad.push(`a ${it.brush} stroke at ${at} keeps one even pressure end to end, so it paints one dead-even width: give the points pressure that starts light, presses through the middle and lifts at the end`);
                 }
                 // A stroke that turns back on itself again and again is
-                // scribble, not a pass following a form.
-                let reversals = 0;
+                // scribble, not a pass following a form. The signed turn
+                // total catches the other filler mark, a spiral: it never
+                // reverses and never closes, so it escapes both checks above.
+                let reversals = 0, turn = 0;
                 for (let i = 1; i + 1 < it.points.length; i++) {
                   const ax = it.points[i][0] - it.points[i - 1][0], ay = it.points[i][1] - it.points[i - 1][1];
                   const bx = it.points[i + 1][0] - it.points[i][0], by = it.points[i + 1][1] - it.points[i][1];
                   const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
-                  if (la && lb && (ax * bx + ay * by) / (la * lb) < -0.5) reversals++;
+                  if (la && lb) {
+                    if ((ax * bx + ay * by) / (la * lb) < -0.5) reversals++;
+                    turn += Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+                  }
                 }
                 if (reversals >= 5) strokeBad.push(`a ${it.brush || "pen"} stroke at ${at} doubles back on itself ${reversals} times, which reads as scribble or a sawtooth, not a pass: redraw it as one pass that follows the form, or split it into separate strokes`);
+                else if (Math.abs(turn) >= 3.5 * Math.PI) strokeBad.push(`a ${it.brush || "pen"} stroke at ${at} curls around on itself ${Math.abs(turn / (2 * Math.PI)).toFixed(1)} turns, which reads as a stock swirl, not a form: draw the thing it stands for or leave it out`);
               }
+            }
+            if (it.type === "text" && b && typeof it.text === "string" && it.text.trim()) {
+              // Words on the canvas are the strongest tell: a generated slogan
+              // or an em dash lands unchecked unless we test the string.
+              const t = it.text;
+              const hit = t.match(/\b(delve|tapestry|realm|seamless|elevate|unlock|unleash|empower|leverage|robust|streamline|harness|testament|pivotal|vibrant|crucial|game[-\s]?changer|cutting[-\s]?edge|next[-\s]?level|revolutionary|journey|ecosystem|stunning|breathtaking|masterpiece)\b/i)
+                || t.match(/(dive in|ready to|get started|learn more|level up|imagine a world|not just\b.{0,40}\bbut\b|it's not\b.{0,40}\bit's\b|more than just)/i)
+                || t.match(/—|--|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u);
+              const ws = t.trim().split(/\s+/);
+              const titled = ws.length >= 4 && ws.every((w) => /^["'(\[]*[A-Z]/.test(w)) && ws.some((w) => /[a-z]/.test(w));
+              if (hit || titled) bad.push(`the text at x ${Math.round(b.x)}, y ${Math.round(b.y)} reads as generated copy (${hit ? `"${hit[0]}"` : "Title Case on every word"}): write the shortest plain version in sentence case, only the words the person gave or real labels`);
             }
             if (!b || b.w * b.h < 0.004 * A || (b.w >= 0.9 * doc.width && b.h >= 0.25 * doc.height)) continue;
             const glow = (it.fill && typeof it.fill === "object" && it.shadow && it.shadow.blur) || Number(it.opacity ?? 1) < 0.35;

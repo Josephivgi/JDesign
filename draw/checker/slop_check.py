@@ -504,7 +504,15 @@ def check_shapes(shapes, W, H, issues):
     for key in sorted(rows, key=lambda k: -len(rows[k])):
         g = rows[key] + rows.get(key + 1, [])
         xs = sorted((s.box[0] + s.box[2]) / 2 for s in g)
-        if len(g) >= 4 and xs[-1] - xs[0] > 0.4 * W:
+        if len(g) >= 3 and xs[-1] - xs[0] > 0.4 * W:
+            # Four or more on a baseline is a row no matter the spacing; three
+            # is only the generated-layout tell when the gaps between them are
+            # even (a real trio lands at uneven depths and spaces).
+            gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
+            mean = sum(gaps) / len(gaps) if gaps else 0
+            cv = (sum((gp - mean) ** 2 for gp in gaps) / len(gaps)) ** 0.5 / mean if mean else 1
+            if len(g) < 4 and cv >= 0.15:
+                continue
             hs = sorted(s.h for s in g)
             if hs[-1] / max(1, hs[0]) < 1.8:
                 issues.append({
