@@ -113,6 +113,11 @@ function approvalScopeFor(call) {
   return String(meta.projectId || args.projectId || meta.workspaceId || args.workspaceId || meta.sessionId || "");
 }
 
+function approvalCommand(host, command, args, timeoutMs) {
+  if (typeof host.askApproval === "function") return host.askApproval(command, args, timeoutMs);
+  return host.rendererCommand(command, args, timeoutMs);
+}
+
 function createElevenLabsApprover(host) {
   return async function approveElevenLabs(call) {
     const meta = (call && call.meta) || {};
@@ -141,7 +146,8 @@ function createElevenLabsApprover(host) {
       : String(args.script != null ? args.script : args.text == null ? "" : args.text);
     let answer = null;
     try {
-      answer = await host.rendererCommand(
+      answer = await approvalCommand(
+        host,
         "approve-elevenlabs",
         {
           tool: call.name,
@@ -188,7 +194,8 @@ function createInstructionsApprover(host) {
     const proposed = String(args.text == null ? "" : args.text);
     let answer = null;
     try {
-      answer = await host.rendererCommand(
+      answer = await approvalCommand(
+        host,
         "approve-instructions",
         {
           tool: call.name,
@@ -250,6 +257,22 @@ function createAgentBridge(host) {
       win.focus();
     } catch {
       /* showing the window is best effort */
+    }
+  }
+
+  function askApproval(command, args, timeoutMs) {
+    const restore = typeof host.approvalVisibility === "function" ? host.approvalVisibility() : null;
+    const done = () => {
+      if (restore) {
+        try { restore(); } catch {}
+      }
+    };
+    try {
+      bringForward();
+      return rendererCommand(command, args, timeoutMs).finally(done);
+    } catch (error) {
+      done();
+      throw error;
     }
   }
 
@@ -648,10 +671,12 @@ function createAgentBridge(host) {
     dataRoot,
     mainWindow: () => host.mainWindow(),
     rendererCommand,
+    askApproval,
   });
   const approveInstructions = createInstructionsApprover({
     mainWindow: () => host.mainWindow(),
     rendererCommand,
+    askApproval,
   });
   // Deleting cards always asks in the app, whichever agent called, and the
   // dialog names the cards so the user sees what is about to go.
@@ -669,10 +694,9 @@ function createAgentBridge(host) {
     } catch {
       names = ids;
     }
-    bringForward();
     let answer = null;
     try {
-      answer = await host.rendererCommand("approve-card-delete", { client: String((call.meta || {}).client || ""), names }, APPROVAL_TIMEOUT_MS);
+      answer = await askApproval("approve-card-delete", { client: String((call.meta || {}).client || ""), names }, APPROVAL_TIMEOUT_MS);
     } catch (error) {
       throw new Error("Nobody answered the delete request in JV (" + ((error && error.message) || error) + ").");
     }

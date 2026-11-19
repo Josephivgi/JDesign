@@ -46,11 +46,13 @@ function attachAgentHub(options) {
       }
     }) || null;
 
-  const bridge = createAgentBridge({ dataRoot, appRoot, windows, mainWindow });
+  const bridge = createAgentBridge({ dataRoot, appRoot, windows, mainWindow, approvalVisibility: options.approvalVisibility });
   const acp = createAcpHost({
     dataRoot,
     appRoot,
     windows,
+    mainWindow,
+    approvalVisibility: options.approvalVisibility,
     powerHold: holdSystemAwake,
     powerRelease: releaseSystemAwake,
     bridgeInfo: () => {
