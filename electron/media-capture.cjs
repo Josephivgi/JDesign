@@ -1,9 +1,9 @@
 // Windows microphone, camera, and screen capture.
 //
 // Keep this file small and about permissions only. Do not fold it back into
-// electron/main.cjs. Record Center UI lives in renderer/js/record-center.js.
-// Persisted setup and OS status live in lib/capture-setup.js. This file is the
-// live Chromium session, OS prompt, and IPC.
+// electron/main.cjs. Record Center UI is not built yet. Persisted setup and OS
+// status live in lib/capture-setup.js. This file is the live Chromium session,
+// OS prompt, and IPC.
 //
 // Why permissions keep breaking
 // -----------------------------
