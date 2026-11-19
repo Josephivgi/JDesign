@@ -10,15 +10,14 @@ const Finish = require("./finish.cjs");
 const lintTries = new Map(); // docId -> draw_svg refusals in a row
 // Brushes that paint washes (constant width, see-through): a ring of one of these is a blob, not a form.
 const WASH_BRUSHES = new Set(["watercolor", "airbrush", "marker"]);
-// Length of a stroke, its start-to-end distance, and how far its middle strays from the straight line between its ends.
-// Last-try repair for a native stroke: a ruler-straight stroke bows out by 5% of its length (a sag that peaks mid-stroke); a ring keeps its first 70% of points so it ends open.
-function repairStroke(raw, kind) {
-  if (!raw || raw.type !== "stroke" || !Array.isArray(raw.points) || raw.points.length < 4) return raw;
-  const pts = raw.points.map((p) => (Array.isArray(p) ? p.slice() : [p.x, p.y, p.pressure ?? p.p ?? 0.5]));
-  // True when every point of a stroke sits the same distance from one centre
+// True when every point of a stroke sits the same distance from one centre
 // (a compass curve): the centre is the circumcircle of its first, middle and last points.
 function isCircleArc(points) {
   const P = points.map((p) => (Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y]));
+  // A compass curve bows hard (a rainbow, a construction arc); a shallow bend
+  // is just a pass following the form and always fits some big circle.
+  const sh = strokeShape(P);
+  if (sh.maxDev < 0.12 * sh.len) return false;
   const [a, b, c] = [P[0], P[Math.floor(P.length / 2)], P[P.length - 1]];
   const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
   if (!Number.isFinite(d) || Math.abs(d) < 1e-6) return false;
@@ -30,6 +29,26 @@ function isCircleArc(points) {
   return rs.every((v) => Math.abs(v - r) <= 0.04 * r);
 }
 
+// Length of a stroke, its start-to-end distance, and how far its middle strays from the straight line between its ends.
+// Last-try repair for a native stroke: a ruler-straight stroke bows out by 5% of its length (a sag that peaks mid-stroke); a ring is dropped; an even-pressure stroke gets a hand-drawn profile (light, press, lift).
+function repairStroke(raw, kind) {
+  if (!raw || raw.type !== "stroke" || !Array.isArray(raw.points) || raw.points.length < 4) return raw;
+  const pts = raw.points.map((p) => (Array.isArray(p) ? p.slice() : [p.x, p.y, p.pressure ?? p.p ?? 0.5]));
+  if (kind === "press") {
+    // A line that never changes pressure reads as a vector. The repair lifts
+    // both ends and presses unevenly through the middle, seeded by the
+    // stroke's own start so the same stroke repairs the same way.
+    const n = pts.length;
+    const seed = Math.abs(Math.sin(pts[0][0] * 0.371 + pts[0][1] * 0.113) * 100) % 1;
+    const out = pts.map((p, i) => {
+      const f = i / Math.max(1, n - 1);
+      const body = 0.55 + 0.28 * Math.sin(f * Math.PI * (1.5 + seed) + seed * 6.28);
+      const tip = Math.min(1, f / 0.15, (1 - f) / 0.15);
+      const v = Math.max(0.1, Math.min(1, body * (0.35 + 0.65 * tip)));
+      return [p[0], p[1], +v.toFixed(3)];
+    });
+    return { ...raw, points: out };
+  }
 // A ring is never kept: an open arc of it still reads as the same circle.
   if (kind === "ring") return null;
   const s = strokeShape(pts);
@@ -403,11 +422,11 @@ function createMcpServer(host) {
           const A = doc.width * doc.height;
           const bad = [];
           const strokeBad = [];
-          const fixes = new Map(); // raw item -> repair kind (ruler or ring)
+          const fixes = new Map(); // raw item -> repair kind (ruler, ring or press)
           const newStrokes = [];
           for (const raw of a.items || []) {
             let it, b;
-            try { it = G.normItem(raw); b = G.bounds(it); } catch { continue; }
+            try { it = G.normItem(raw); b = G.bounds(it); } catch (err) { bad.push(`an item could not be read (${err.message}); fix its fields and call draw again`); continue; }
             if (it.type === "stroke" && Array.isArray(it.points) && it.points.length >= 2 && b) {
               const at = `x ${Math.round(b.x)}-${Math.round(b.x + b.w)}, y ${Math.round(b.y)}-${Math.round(b.y + b.h)}`;
               newStrokes.push({ it, where: `x ${Math.round(b.x)}, y ${Math.round(b.y)}` });
@@ -419,6 +438,23 @@ function createMcpServer(host) {
                 if (s.len >= (it.size < 10 ? 60 : 120) && s.len < 600 && s.maxDev < 0.025 * s.len && fixes.set(raw, "ruler")) strokeBad.push(`a stroke at ${at} runs ruler-straight (it bends less than 2.5% along its length): bend it with the form, or split it into shorter passes that follow the shape`);
                 else if (s.len >= 240 && s.chord < 0.08 * s.len && it.points.length >= 6 && fixes.set(raw, "ring")) strokeBad.push(`a ${it.brush || "pen"} stroke at ${at} closes on itself into a ring, which reads as a stock circle, a sausage cloud or a blob: open the stroke and build the form with overlapping passes of different lengths`);
                 else if (s.len >= 240 && it.points.length >= 8 && isCircleArc(it.points) && fixes.set(raw, "ring")) strokeBad.push(`a ${it.brush || "pen"} stroke at ${at} is a perfect circle arc (every point the same distance from one centre), which reads as a stock rainbow or a construction arc: draw the form with uneven passes that follow it, not a compass curve`);
+                // A pen, pencil or calligraphy stroke that never changes
+                // pressure paints one dead-even width along its whole length:
+                // the tell of a generated line, not a hand line.
+                if (["pen", "pencil", "calligraphy"].includes(it.brush) && s.len >= 60 && it.points.length >= 6) {
+                  const ps = it.points.map((p) => p[2]).filter((v) => typeof v === "number");
+                  if (ps.length >= 6 && Math.max(...ps) - Math.min(...ps) < 0.08 && (fixes.has(raw) || fixes.set(raw, "press"))) strokeBad.push(`a ${it.brush} stroke at ${at} keeps one even pressure end to end, so it paints one dead-even width: give the points pressure that starts light, presses through the middle and lifts at the end`);
+                }
+                // A stroke that turns back on itself again and again is
+                // scribble, not a pass following a form.
+                let reversals = 0;
+                for (let i = 1; i + 1 < it.points.length; i++) {
+                  const ax = it.points[i][0] - it.points[i - 1][0], ay = it.points[i][1] - it.points[i - 1][1];
+                  const bx = it.points[i + 1][0] - it.points[i][0], by = it.points[i + 1][1] - it.points[i][1];
+                  const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+                  if (la && lb && (ax * bx + ay * by) / (la * lb) < -0.5) reversals++;
+                }
+                if (reversals >= 5) strokeBad.push(`a ${it.brush || "pen"} stroke at ${at} doubles back on itself ${reversals} times, which reads as scribble or a sawtooth, not a pass: redraw it as one pass that follows the form, or split it into separate strokes`);
               }
             }
             if (!b || b.w * b.h < 0.004 * A || (b.w >= 0.9 * doc.width && b.h >= 0.25 * doc.height)) continue;
@@ -548,7 +584,7 @@ function createMcpServer(host) {
               const selfClosed = /\/>$/.test(el);
               if (!selfClosed && !tag) continue;
               const lit = el.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const re = new RegExp(selfClosed ? lit : lit + "[^<]*</" + tag + ">", "g");
+              const re = new RegExp(selfClosed ? lit : lit + "[\\s\\S]*?</" + tag + ">", "g");
               const n = (svg.match(re) || []).length;
               if (n) { svg = svg.replace(re, ""); stripped += n; }
             }

@@ -916,7 +916,7 @@ function lintSvg(svg, opts) {
   // Slab strata: four or more wide pieces stacked one above another that
   // together fill much of their area (a cliff as a pile of horizontal
   // slabs, a sky as stripes), whether or not a base shape sits under them.
-  const slabs = filled.filter((s) => { const w = s.box.w * kx, h = s.box.h * ky; return !field(s.box) && !/data-jdraw-plane="(lit|mid)"/.test(s.raw || "") && w >= 2.2 * h && w >= 0.06 * W && w * h < 0.1 * A; });
+  const slabs = filled.filter((s) => { const w = s.box.w * kx, h = s.box.h * ky; return !field(s.box) && !/data-jdraw-plane="/.test(s.raw || "") && w >= 2.2 * h && w >= 0.06 * W && w * h < 0.1 * A; });
   for (const s of slabs) {
     const col = slabs.filter((o) => o.box.x < s.box.x + s.box.w && o.box.x + o.box.w > s.box.x);
     const ys = [...new Set(col.map((o) => Math.round((o.box.y + o.box.h / 2) * ky / (0.01 * H))))];
@@ -1680,10 +1680,22 @@ function addSwells(svg, vb) {
       pieces++;
     }
   }
-  // After the sea itself, so the swells sit on it and under nothing else drawn later.
-  const cut = svg.lastIndexOf("</svg>");
-  if (cut < 0) return { svg, fixed: 0 };
-  return { svg: svg.slice(0, cut) + out.join("") + svg.slice(cut), fixed: pieces };
+  // Right after the sea element, so the swells sit on the water and under the
+  // boats, glints and shores drawn on top of it. If the sea tag cannot be
+  // found they go before </svg> as before.
+  let pos = -1;
+  const at = svg.indexOf(sea.raw || "");
+  if (at >= 0) {
+    pos = at + sea.raw.length;
+    if (!/\/>$/.test(sea.raw)) {
+      const tag = (sea.raw.match(/^<([a-z]+)/i) || [])[1];
+      const close = tag && svg.indexOf("</" + tag + ">", pos);
+      if (close >= 0) pos = close + tag.length + 3;
+    }
+  }
+  if (pos < 0) pos = svg.lastIndexOf("</svg>");
+  if (pos < 0) return { svg, fixed: 0 };
+  return { svg: svg.slice(0, pos) + out.join("") + svg.slice(pos), fixed: pieces };
 }
 
 function primitiveOutline(raw) {

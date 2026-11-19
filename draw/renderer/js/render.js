@@ -92,6 +92,69 @@
     return r * (0.25 + 0.75 * p);
   }
 
+  // The smooth centerline a stroke follows (each piece bends through its
+  // point, midpoint to midpoint), sampled finely so the stroke can be painted
+  // as one filled outline instead of many overlapping pieces, which left a
+  // joint bump at every point. Each sample carries the index and param of the
+  // piece it came from, so widths interpolate the way the old widths did.
+  function strokeSpine(pts) {
+    const seg = [{ x: pts[0][0], y: pts[0][1], dx: 0, dy: 0, i: 0, f: 0 }];
+    let px = pts[0][0], py = pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      const cx = pts[i][0], cy = pts[i][1];
+      const nx = pts[i + 1];
+      const mx = nx ? (cx + nx[0]) / 2 : cx, my = nx ? (cy + nx[1]) / 2 : cy;
+      if (i === 1) { seg[0].dx = 2 * (cx - px); seg[0].dy = 2 * (cy - py); }
+      for (let k = 1; k <= 5; k++) {
+        const t = k / 5, mt = 1 - t;
+        seg.push({
+          x: mt * mt * px + 2 * mt * t * cx + t * t * mx,
+          y: mt * mt * py + 2 * mt * t * cy + t * t * my,
+          dx: 2 * mt * (cx - px) + 2 * t * (mx - cx),
+          dy: 2 * mt * (cy - py) + 2 * t * (my - cy),
+          i, f: t,
+        });
+      }
+      px = mx; py = my;
+    }
+    // A doubled point leaves a dead derivative: reuse the last real direction.
+    for (let k = 1; k < seg.length; k++) if (!seg[k].dx && !seg[k].dy) { seg[k].dx = seg[k - 1].dx; seg[k].dy = seg[k - 1].dy; }
+    return seg;
+  }
+
+  // Paints a variable-width stroke as one outline: down the left edge, around
+  // a round cap at the end, back up the right edge, around the start. There
+  // are no segment joints, so the silhouette stays one clean curve.
+  function ribbon(ctx, spine, halfAt) {
+    const n = spine.length;
+    if (!n) return;
+    const L = new Array(n), R = new Array(n), W = new Array(n);
+    for (let k = 0; k < n; k++) {
+      const s = spine[k];
+      const d = Math.hypot(s.dx, s.dy) || 1;
+      const w = Math.max(0.3, halfAt(s));
+      W[k] = w;
+      L[k] = [s.x - (s.dy / d) * w, s.y + (s.dx / d) * w];
+      R[k] = [s.x + (s.dy / d) * w, s.y - (s.dx / d) * w];
+    }
+    // Direction the left edge leaves a spine point: the left normal's angle.
+    const aL = (s) => { const d = Math.hypot(s.dx, s.dy); return d ? Math.atan2(s.dx / d, -s.dy / d) : 0; };
+    ctx.beginPath();
+    ctx.moveTo(L[0][0], L[0][1]);
+    for (let k = 1; k < n; k++) ctx.lineTo(L[k][0], L[k][1]);
+    {
+      const s = spine[n - 1], w = W[n - 1], a0 = aL(s);
+      for (let k = 1; k <= 6; k++) { const a = a0 - (Math.PI * k) / 6; ctx.lineTo(s.x + w * Math.cos(a), s.y + w * Math.sin(a)); }
+    }
+    for (let k = n - 1; k >= 0; k--) ctx.lineTo(R[k][0], R[k][1]);
+    {
+      const s = spine[0], w = W[0], a0 = aL(s);
+      for (let k = 1; k <= 6; k++) { const a = a0 + Math.PI - (Math.PI * k) / 6; ctx.lineTo(s.x + w * Math.cos(a), s.y + w * Math.sin(a)); }
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
   // Strokes draw at full strength into a scratch canvas, then the result is
   // laid down once with the stroke's opacity, so overlapping segments do not
   // build up darker spots.
@@ -149,19 +212,7 @@
         return Math.max(0.5, full * w);
       };
       if (total < 1) { ctx.lineWidth = full; ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]); ctx.stroke(); return; }
-      let px = pts[0][0], py = pts[0][1];
-      for (let i = 1; i < pts.length; i++) {
-        const cur = pts[i];
-        const next = pts[i + 1];
-        const mx = next ? (cur[0] + next[0]) / 2 : cur[0];
-        const my = next ? (cur[1] + next[1]) / 2 : cur[1];
-        ctx.lineWidth = (widthAt(i - 1) + widthAt(i)) / 2;
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.quadraticCurveTo(cur[0], cur[1], mx, my);
-        ctx.stroke();
-        px = mx; py = my;
-      }
+      ribbon(ctx, strokeSpine(pts), (s) => (widthAt(Math.max(0, s.i - 1)) * (1 - s.f) + widthAt(s.i) * s.f) / 2);
       if (it.brush !== "airbrush" && total > full * 3) {
         // Dry-brush tail: the last part of a long wash breaks into bristle
         // streaks, so the stroke ends in broken paint, not a clean point.
@@ -188,20 +239,12 @@
       }
       return;
     }
-    // Variable width: short curved segments, each with its own width.
-    let px = pts[0][0], py = pts[0][1];
-    for (let i = 1; i < pts.length; i++) {
-      const cur = pts[i];
-      const next = pts[i + 1];
-      const mx = next ? (cur[0] + next[0]) / 2 : cur[0];
-      const my = next ? (cur[1] + next[1]) / 2 : cur[1];
-      ctx.lineWidth = Math.max(0.5, radiusAt(it, cur[2]) * 2);
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.quadraticCurveTo(cur[0], cur[1], mx, my);
-      ctx.stroke();
-      px = mx; py = my;
-    }
+    // Variable width: pressure interpolates along the stroke, one clean ribbon.
+    const press = (s) => {
+      const a = pts[Math.max(0, s.i - 1)][2] ?? 0.5, b = pts[s.i][2] ?? 0.5;
+      return a + (b - a) * s.f;
+    };
+    ribbon(ctx, strokeSpine(pts), (s) => Math.max(0.25, radiusAt(it, press(s))));
   }
 
   function smoothPolygon(ctx, pts, closed) {

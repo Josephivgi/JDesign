@@ -402,7 +402,7 @@ function itemsFor(docId, issue, others = []) {
 // Stock clouds JDraw left out, and draw-time refusals, during a gate fix turn.
 const leftOut = new Map(); // docId -> names
 const refusedIn = new Map(); // docId -> count
-const issueKey = (i) => String(i.what || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w && !["the", "a", "an", "is", "are", "all", "both", "still", "very", "one", "two", "three", "four", "five", "every", "each", "flat", "big", "small", "large", "stock", "bottom", "top", "left", "right", "in", "of"].includes(w)).slice(0, 1).map((w) => (w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w)).join(" ");
+const issueKey = (i) => String(i.what || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w && !["the", "a", "an", "is", "are", "all", "both", "still", "very", "one", "two", "three", "four", "five", "every", "each", "flat", "big", "small", "large", "stock", "bottom", "top", "left", "right", "in", "of"].includes(w)).slice(0, 2).map((w) => (w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w)).join(" ");
 const roundScore = (issues) => issues.reduce((sum, i) => sum + (i.severity || 2), 0);
 // A state is worse when its worst problem is worse; only then by total
 // score. Comparing by score alone restores a round with one severe,

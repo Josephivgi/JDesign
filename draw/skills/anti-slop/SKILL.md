@@ -39,6 +39,8 @@ draw_svg checks each object and refuses it, with what to change, when it:
 - is one smooth dark pad wider than an object along its base (stock waterline shadow)
 - is three or more small dashes stacked one under another (reflection ladder)
 - is a rock whose inner planes are big smooth curves, or a rock drawn with soft curves only
+- is a pen, pencil or calligraphy stroke that keeps one even pressure end to end (one dead-even line)
+- is a stroke that doubles back on itself again and again (scribble, not a pass)
 
 Three refusals for one object, then a fourth try. On that try JDraw strips the decoration tells, smooths sawtooth edges, breaks ruled horizons and adds its own planes. A stock lens cloud is left out. Your own planes are better than JDraw's, so plan for them from the start.
 
