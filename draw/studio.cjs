@@ -721,6 +721,9 @@ function createView() {
   hostWin.on("enter-full-screen", layoutView);
   hostWin.on("leave-full-screen", layoutView);
   wc.loadFile(path.join(__dirname, "renderer", "index.html"));
+  wc.on("did-finish-load", () => {
+    if (viewShown) focusViewSoon();
+  });
   wc.setWindowOpenHandler(({ url }) => {
     if (/^https:\/\//.test(url)) shell.openExternal(url);
     return { action: "deny" };
@@ -763,13 +766,22 @@ function layoutView() {
   view.setBounds({ x: RAIL_WIDTH, y: 0, width: Math.max(0, width - RAIL_WIDTH), height });
 }
 
+// A rail click that opens Draw is still finishing in JV's page when we focus
+// the view, so focus can bounce straight back to JV. Re-apply it after the
+// click has ended, and again once Draw's page has loaded.
+function focusViewSoon() {
+  setImmediate(() => {
+    try { if (view && viewShown && !view.webContents.isDestroyed()) view.webContents.focus(); } catch {}
+  });
+}
+
 function showView(on) {
   if (SMOKE) return true;
   if (!view || view.webContents.isDestroyed()) return false;
   viewShown = !!on;
   view.setVisible(viewShown);
   layoutView();
-  if (viewShown) { try { view.webContents.focus(); } catch {} }
+  if (viewShown) focusViewSoon();
   else { try { hostWin.webContents.focus(); } catch {} }
   return viewShown;
 }

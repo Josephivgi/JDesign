@@ -165,10 +165,34 @@ if (!SMOKE && !DRAW_SMOKE && !app.requestSingleInstanceLock()) {
 let currentStudio = "video";
 let drawStudio = null;
 let themeMode = null;
+// Agent approvals live in the JV page; keep Draw from covering them while one is pending.
+let approvalPrompts = 0;
+let approvalReturnStudio = null;
+function beginApprovalVisibility() {
+  approvalPrompts += 1;
+  if (approvalPrompts === 1) {
+    approvalReturnStudio = currentStudio;
+    if (currentStudio === "draw") switchStudio("video");
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    approvalPrompts = Math.max(0, approvalPrompts - 1);
+    if (approvalPrompts > 0) return;
+    const returnStudio = approvalReturnStudio;
+    approvalReturnStudio = null;
+    if (currentStudio === "draw") {
+      if (drawStudio) drawStudio.show(true);
+    } else if (returnStudio === "draw") {
+      switchStudio("draw");
+    }
+  };
+}
 function switchStudio(to) {
   const target = to === "draw" ? "draw" : "video";
   currentStudio = target;
-  if (drawStudio) drawStudio.show(target === "draw");
+  if (drawStudio) drawStudio.show(target === "draw" && approvalPrompts === 0);
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed() || isCountdownOverlay(win)) continue;
     try { win.webContents.send("studio-changed", { studio: target }); } catch {}
@@ -308,7 +332,7 @@ function attachMainIpc() {
   // so the smoke has to list real harnesses and open the real marketplace. It
   // starts the MCP bridge but never spawns an agent until a prompt asks.
   const { attachAgentHub } = require("./agent-hub-ipc.cjs");
-  agentHub = attachAgentHub({ dataRoot, appRoot: path.join(__dirname, ".."), log: logCrash });
+  agentHub = attachAgentHub({ dataRoot, appRoot: path.join(__dirname, ".."), log: logCrash, approvalVisibility: beginApprovalVisibility });
 }
 
 let agentHub = null;
