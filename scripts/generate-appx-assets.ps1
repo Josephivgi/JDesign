@@ -5,7 +5,7 @@ Add-Type -AssemblyName System.Drawing
 $root = Split-Path $PSScriptRoot -Parent
 $src = Join-Path $root "renderer\logo.png"
 $out = Join-Path $root "build\appx"
-$bg = [System.Drawing.Color]::FromArgb(0x1f, 0x3a, 0x5f)
+$bg = [System.Drawing.Color]::FromArgb(0x18, 0x1b, 0x22)
 
 if (-not (Test-Path $src)) { throw "Missing $src" }
 New-Item -ItemType Directory -Force -Path $out | Out-Null
