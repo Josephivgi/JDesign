@@ -39,8 +39,10 @@ const SECTIONS = [
   { id: "about", label: "About", icon: "info" },
 ];
 
+// Mono is the ink of the theme (black in light, white in dark), so its swatch
+// follows the text token instead of a fixed black.
 const ACCENTS = [
-  ["mono", "#15161a"], ["iris", "#7c6cff"], ["blue", "#3b82f6"], ["teal", "#14b8a6"], ["green", "#22c55e"], ["amber", "#f59e0b"], ["rose", "#f43f5e"],
+  ["mono", "var(--text)"], ["iris", "#7c6cff"], ["blue", "#3b82f6"], ["teal", "#14b8a6"], ["green", "#22c55e"], ["amber", "#f59e0b"], ["rose", "#f43f5e"],
 ];
 
 let current = "general";
@@ -123,6 +125,7 @@ const PANES = {
           '<div class="row">' + (def ? '<button class="btn btn-sm btn-ghost" data-def-reset title="Use the first agent that is ready">Reset</button>' : "") +
           '<button class="picker is-boxed" data-def-agent>' + (def ? agentAvatar(def) : "") + "<span>" + esc(h ? h.name : "First installed agent") + "</span>" + icon("chevDown", "i-sm chev") + "</button></div>") +
         row("Connect agents when a chat opens", "Starts the chat's agent in the background so it is ready when you type.", toggle("autoConnect", store.prefs.autoConnect !== false)) +
+        row("Slop check", "Turns down the default AI look in cards, animations and copy, and checks the result after each turn.", toggle("slopGate", store.prefs.slopGate !== false)) +
         "</div>";
       pane.querySelector("[data-def-agent]").addEventListener("click", (event) =>
         openAgentMenu(event.currentTarget, def, async (id) => {
@@ -172,8 +175,8 @@ const PANES = {
         '<div class="set-group">' +
         row("Send with", "The other combination adds a new line.", seg("sendKey", p.sendKey || "enter", [["enter", "Enter"], ["ctrl-enter", "Ctrl + Enter"]])) +
         row("Chat text size", "Changes the text in the chat panel only.",
-          '<div class="chat-size-cell">' + seg("chatTextSize", p.chatTextSize || "md", [["sm", "Small"], ["md", "Medium"], ["lg", "Large"]]) +
-          '<span class="chat-size-sample">The agent writes here.</span></div>') +
+          '<div class="chat-size-cell"><span class="chat-size-sample" aria-hidden="true">The agent writes here.</span>' +
+          seg("chatTextSize", p.chatTextSize || "md", [["sm", "Small"], ["md", "Medium"], ["lg", "Large"]]) + "</div>") +
         row("Show agent thinking", "Shows the agent's reasoning when it shares it. Off keeps the chat short.", toggle("showThinking", p.showThinking === true)) +
         row("Expand tool steps", "Lists every tool call instead of a one line summary.", toggle("showToolDetails", Boolean(p.showToolDetails))) +
         "</div>" +
@@ -227,14 +230,22 @@ const PANES = {
 
   instructions(pane) {
     const st = { text: "", saved: "", max: 0, rules: [], savedRules: "[]" };
+    // One line tall from the stylesheet; taller only when the words wrap.
+    const fitRule = (t) => {
+      t.style.height = "";
+      if (t.scrollHeight > t.clientHeight + 2) t.style.height = t.scrollHeight + 2 + "px";
+    };
+    const fitRules = () => pane.querySelectorAll("[data-rule-text]").forEach(fitRule);
     const paintRules = () => {
       const list = pane.querySelector("[data-rules]");
       list.innerHTML = st.rules.length
         ? st.rules.map((r, i) =>
             '<div class="rule"><div class="seg" data-rule-type="' + i + '"><button data-t="do" aria-pressed="' + (r.type === "do") + '"' + (r.type === "do" ? ' class="is-on"' : "") + '>Do</button><button data-t="dont" aria-pressed="' + (r.type === "dont") + '"' + (r.type === "dont" ? ' class="is-on"' : "") + ">Don't</button></div>" +
-            '<input class="input" data-rule-text="' + i + '" value="' + esc(r.text) + '" maxlength="' + (st.maxText || 300) + '">' +
-            '<button class="icon-btn" data-rule-del="' + i + '" title="Remove">' + icon("trash") + "</button></div>").join("")
-        : '<p class="faint">No rules yet.</p>';
+            // A box that grows with the rule, so a long one shows all its words.
+            '<textarea class="textarea" rows="1" data-rule-text="' + i + '" aria-label="Rule ' + (i + 1) + '" maxlength="' + (st.maxText || 300) + '">' + esc(r.text) + "</textarea>" +
+            '<button class="icon-btn" data-rule-del="' + i + '" title="Remove rule" aria-label="Remove rule ' + (i + 1) + '">' + icon("trash") + "</button></div>").join("")
+        : '<p class="faint">No rules yet. Add one to tell every agent what to always or never do.</p>';
+      list.querySelectorAll("[data-rule-text]").forEach(fitRule);
       dirtyCheck();
     };
     pane.innerHTML =
@@ -285,9 +296,16 @@ const PANES = {
     pane.querySelector("[data-rules]").addEventListener("input", (event) => {
       const t = event.target.closest("[data-rule-text]");
       if (!t) return;
+      // A rule is one line of words: a pasted line break becomes a space.
+      if (/[\r\n]/.test(t.value)) t.value = t.value.replace(/\s*[\r\n]+\s*/g, " ");
       st.rules[Number(t.dataset.ruleText)].text = t.value;
+      fitRule(t);
       dirtyCheck();
     });
+    pane.querySelector("[data-rules]").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && event.target.closest("[data-rule-text]")) event.preventDefault();
+    });
+    window.addEventListener("resize", fitRules);
     pane.querySelector("[data-rules]").addEventListener("click", (event) => {
       const del = event.target.closest("[data-rule-del]");
       if (del) {
@@ -329,6 +347,7 @@ const PANES = {
     });
     return () => {
       off();
+      window.removeEventListener("resize", fitRules);
       void saveAll(true);
     };
   },
@@ -914,7 +933,9 @@ const PANES = {
   },
 
   storage(pane) {
-    const COLORS = { video: "var(--accent)", render: "var(--ok)", image: "var(--text-2)", audio: "var(--warn)", leftover: "var(--danger)", cache: "var(--bg-4)", other: "var(--text-3)" };
+    // Mixed from tokens, so caches stay visible on the card in dark and light
+    // (the plain surface token vanished into the dark card).
+    const COLORS = { video: "var(--accent)", render: "var(--ok)", image: "var(--text-2)", audio: "var(--warn)", leftover: "var(--danger)", cache: "color-mix(in oklab, var(--text-3) 45%, var(--bg-3))", other: "var(--text-3)" };
     const st = { report: null, job: null, imp: null, importing: null };
     const paint = () => {
       const r = st.report;
@@ -934,7 +955,7 @@ const PANES = {
           ? '<div class="set-block"><div class="row"><span class="grow">' + esc((job.progress && job.progress.label) || "Working") + '</span><button class="btn btn-sm" data-cancel>Cancel</button></div>' +
             '<div class="progress" style="margin-top:8px"><span style="width:' + progressPct(job.progress) + '%"></span></div></div>'
           : r ? row("Make files smaller", save ? "Re-encodes videos and images without visible loss, removes duplicate copies and caches. About " + formatBytes(save) + " can be saved. You confirm first." : "Re-encodes videos and images without visible loss, and removes duplicate copies and caches. You confirm first.",
-              '<button class="btn btn-primary" data-optimize>' + icon("sparkles") + "Free up space</button>") : "") +
+              '<button class="btn btn-primary" data-optimize>Free up space</button>') : "") +
         (job && !job.running && job.finishedAt ? '<div class="set-block faint" style="font-size:var(--fs-sm)">' + (job.error ? '<span class="problem bad">' + icon("alertCircle", "i-sm") + esc(job.error) + "</span>" : "Last run finished " + esc(timeAgo(job.finishedAt)) + ".") + "</div>" : "") +
         "</div>" +
         (r && r.leftovers && r.leftovers.length

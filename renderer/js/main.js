@@ -39,6 +39,7 @@ function railMarkup() {
     // a filled tile, never the page marker bar, so only one bar shows at a time.
     '<button class="rail-link is-studio' + (inDraw ? "" : " is-on") + '" data-studio="video" title="Video Editor">' + icon("film") + "<span>Video Editor</span></button>" +
     '<button class="rail-link is-studio' + (inDraw ? " is-on" : "") + '" data-studio="draw" title="Drawing (Ctrl D)">' + icon("pencil") + "<span>Drawing</span></button>" +
+    '<div class="rail-sep" role="separator"></div>' +
     NAV.map((item) =>
       '<button class="rail-link' + (page === item.page ? " is-on" : "") + '" data-nav="' + item.page + '" title="' + item.label + " (Ctrl " + item.key + ')">' +
       icon(item.icon) + "<span>" + item.label + "</span></button>",

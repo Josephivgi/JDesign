@@ -12,55 +12,56 @@
 
   async function render(root, app) {
     root.innerHTML = "";
-    const top = el(`<header class="topbar drag">
-      <div class="brand"><span class="mark"></span>JDesign</div>
-      <div class="seg no-drag studio-switch" role="group" aria-label="Studio">
-        <button type="button" class="on" data-studio="draw">Draw</button>
-        <button type="button" data-studio="video">Video</button>
-      </div>
-      <span class="spacer"></span>
-      <div class="seg no-drag" role="group" aria-label="Theme">
-        <button type="button" data-mode="light" title="Light">${icon("sun")}</button>
-        <button type="button" data-mode="dark" title="Dark">${icon("moon")}</button>
-        <button type="button" data-mode="system" title="Match Windows">${icon("monitor")}</button>
-      </div>
-      <button type="button" class="icon-btn no-drag settings-btn" title="Settings" aria-label="Settings">${icon("sliders")}</button>
-    </header>`);
+    // No top bar here: the Video rail beside this view already has the JD
+    // logo and the Video Editor / Drawing switch. The page starts with its
+    // title, like Library and Agents, and keeps the theme and settings
+    // controls at the right of the title.
+    const home = el(`<main class="home"><div class="home-inner">
+      <header class="home-head">
+        <div class="titles">
+          <h1>What are you drawing today?</h1>
+          <p class="lede">Sketch it yourself, then ask the assistant to color, shade or finish it with you.</p>
+          <p class="ai-line"></p>
+        </div>
+        <div class="tools">
+          <div class="seg" role="group" aria-label="Theme">
+            <button type="button" data-mode="light" title="Light" aria-label="Light theme">${icon("sun")}</button>
+            <button type="button" data-mode="dark" title="Dark" aria-label="Dark theme">${icon("moon")}</button>
+            <button type="button" data-mode="system" title="Match Windows" aria-label="Match the Windows theme">${icon("monitor")}</button>
+          </div>
+          <button type="button" class="icon-btn settings-btn" title="Draw settings" aria-label="Draw settings">${icon("sliders")}</button>
+        </div>
+      </header>
+      <div class="section-head"><h2>New drawing</h2><span class="hint">Pick a paper size</span></div>
+      <div class="sizes"></div>
+      <div class="section-head"><h2>Your drawings</h2><span class="count"></span><input class="input search" type="search" placeholder="Search drawings" aria-label="Search drawings"></div>
+      <div class="gallery-wrap"></div>
+    </div></main>`);
     const mode = document.documentElement.dataset.mode || "system";
-    top.querySelectorAll('.seg[aria-label="Theme"] button').forEach((b) => {
+    const themeBtns = [...home.querySelectorAll('.seg[aria-label="Theme"] button')];
+    themeBtns.forEach((b) => {
       b.classList.toggle("on", b.dataset.mode === mode);
-      b.querySelector("svg").style.cssText = "width:15px;height:15px";
+      b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
       b.addEventListener("click", async () => {
         await jdraw.call("prefs:set", "theme", b.dataset.mode);
         await jdraw.call("studio:theme", b.dataset.mode);
         await UI.applyTheme(b.dataset.mode);
-        top.querySelectorAll('.seg[aria-label="Theme"] button').forEach((x) => x.classList.toggle("on", x === b));
+        themeBtns.forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", String(x === b)); });
       });
     });
-    top.querySelector('[data-studio="video"]').addEventListener("click", () => jdraw.call("studio:switch", "video"));
-    top.querySelector(".settings-btn").addEventListener("click", () => openSettings());
-    root.appendChild(top);
-
-    const home = el(`<main class="home"><div class="home-inner">
-      <h1>What are you drawing today?</h1>
-      <p class="lede">Sketch it yourself, then ask the assistant to color, shade or finish it with you.</p>
-      <div class="sizes"></div>
-      <div class="section-head"><h2>Your drawings</h2><span class="count"></span><input class="input search" type="search" placeholder="Search drawings" aria-label="Search drawings"></div>
-      <div class="gallery-wrap"></div>
-      <p class="ai-line" style="margin-top:32px"></p>
-    </div></main>`);
+    home.querySelector(".settings-btn").addEventListener("click", () => openSettings());
     root.appendChild(home);
 
     const sizes = home.querySelector(".sizes");
     for (const s of SIZES) {
       const ratio = s.w / s.h;
-      const bw = ratio >= 1 ? 64 : Math.round(56 * ratio);
-      const bh = ratio >= 1 ? Math.round(64 / ratio) : 56;
-      const card = el(`<button type="button" class="size-card"><div class="shape-box"><div class="shape" style="width:${bw}px;height:${bh}px"></div></div><div class="t">${esc(s.t)}</div><div class="d">${esc(s.d)}</div></button>`);
+      const bw = ratio >= 1 ? 76 : Math.round(68 * ratio);
+      const bh = ratio >= 1 ? Math.round(76 / ratio) : 68;
+      const card = el(`<button type="button" class="size-card"><div class="shape-box"><div class="shape" style="width:${bw}px;height:${bh}px"></div></div><div class="cap"><span class="t">${esc(s.t)}</span><span class="d">${esc(s.d)}</span></div></button>`);
       card.addEventListener("click", () => create(app, { width: s.w, height: s.h, name: `${s.t} drawing` }));
       sizes.appendChild(card);
     }
-    const custom = el(`<button type="button" class="size-card"><div class="shape-box"><div class="shape" style="width:48px;height:48px;border-style:dashed;display:grid;place-items:center">${icon("plus")}</div></div><div class="t">Custom size</div><div class="d">Pick width and height</div></button>`);
+    const custom = el(`<button type="button" class="size-card"><div class="shape-box"><div class="shape custom" style="width:56px;height:56px">${icon("plus")}</div></div><div class="cap"><span class="t">Custom size</span><span class="d">Up to 8192 px</span></div></button>`);
     custom.addEventListener("click", () => customSize(app));
     sizes.appendChild(custom);
 
@@ -75,12 +76,12 @@
       count.textContent = list.length ? String(list.length) : "";
       wrap.innerHTML = "";
       if (!list.length) {
-        wrap.appendChild(el(`<div class="empty"><strong>No drawings yet</strong>Pick a size above to start your first one.</div>`));
+        wrap.appendChild(el(`<div class="empty">${icon("image")}<strong>No drawings yet</strong><span>Pick a paper size above to start your first one.</span></div>`));
         search.style.display = "none";
         return;
       }
       search.style.display = "";
-      if (!shown.length) { wrap.appendChild(el(`<div class="empty">Nothing matches "${esc(q)}".</div>`)); return; }
+      if (!shown.length) { wrap.appendChild(el(`<div class="empty"><strong>No drawing matches "${esc(q)}"</strong><span>Try a shorter search.</span></div>`)); return; }
       const grid = el('<div class="gallery"></div>');
       for (const d of shown) {
         const card = el(`<div class="art-card" tabindex="0" role="button" aria-label="Open ${esc(d.name)}">
@@ -131,7 +132,7 @@
     let failed = "";
     try { skills = await jdraw.call("skills:list"); } catch (err) { failed = err.message; }
     const body = el('<div class="settings"></div>');
-    const sec = el(`<section class="set-sec"><h3>Skills</h3><p class="set-note">Agents read these before they draw. Style skills give a general look. Craft skills cover quality and writing. Skills are read-only here.</p></section>`);
+    const sec = el(`<section class="set-sec"><h3>Skills</h3><p class="set-note">Agents read these before they draw. Style skills give a general look. Craft skills cover quality and writing. To use one, type / and its name in the assistant chat. Skills are read-only here.</p></section>`);
     if (failed) sec.appendChild(el(`<p class="set-note problem">${esc(failed)}</p>`));
     const groups = [["Styles", skills.filter((s) => s.kind === "style")], ["Craft", skills.filter((s) => s.kind !== "style")]];
     for (const [name, list] of groups) {
@@ -139,12 +140,13 @@
       sec.appendChild(el(`<h4 class="set-group">${esc(name)} <span class="count">${list.length}</span></h4>`));
       const ul = el('<ul class="skill-list"></ul>');
       for (const s of list) {
-        ul.appendChild(el(`<li class="skill" data-skill="${esc(s.id)}"><div class="skill-t">${esc(s.title)}<code>${esc(s.id)}</code></div><div class="skill-d">${esc(s.description)}</div></li>`));
+        ul.appendChild(el(`<li class="skill" data-skill="${esc(s.id)}"><div class="skill-t"><span>${esc(s.title)}</span><span class="skill-cmd">/${esc(s.id)}</span></div><div class="skill-d">${esc(s.description)}</div></li>`));
       }
       sec.appendChild(ul);
     }
     body.appendChild(sec);
-    return openDialog({ title: "Settings", body, buttons: [{ label: "Close", primary: true, value: true }], onOpen: (s) => s.querySelector(".dialog").classList.add("wide") });
+    // Nothing to confirm in a read-only list, so Close is a plain button.
+    return openDialog({ title: "Draw settings", body, buttons: [{ label: "Close", value: true }], onOpen: (s) => s.querySelector(".dialog").classList.add("wide") });
   }
 
   async function create(app, opts) {
@@ -155,7 +157,7 @@
   }
 
   async function customSize(app) {
-    const body = el(`<div><div class="grid2"><div><label for="cw">Width</label><input id="cw" class="input" type="number" min="64" max="8192" value="1600" style="width:100%"></div><div><label for="ch">Height</label><input id="ch" class="input" type="number" min="64" max="8192" value="1200" style="width:100%"></div></div><p style="margin:12px 0 0;font-size:12px">In pixels, 64 to 8192.</p></div>`);
+    const body = el(`<div><div class="grid2"><div><label for="cw">Width</label><input id="cw" class="input" type="number" min="64" max="8192" value="1600" style="width:100%"></div><div><label for="ch">Height</label><input id="ch" class="input" type="number" min="64" max="8192" value="1200" style="width:100%"></div></div><p class="field-help">In pixels, 64 to 8192.</p></div>`);
     const v = await openDialog({
       title: "Custom size",
       body,

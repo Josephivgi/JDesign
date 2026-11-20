@@ -253,7 +253,7 @@ async function runJeditorSmoke(win, opts) {
       }
       await sleep(2500);
       report.turn = await js(
-        "(() => { const t = document.querySelector('[data-inner]'); return { users: t.querySelectorAll('.msg-user').length, agentReplies: t.querySelectorAll('.msg-agent').length, steps: t.querySelectorAll('.step').length, errors: Array.from(t.querySelectorAll('.err')).map((e) => e.textContent.slice(0, 300)), notice: (document.querySelector('[data-notice]').textContent || '').slice(0, 300), lastReply: (Array.from(t.querySelectorAll('.msg-agent .md')).pop() || {}).textContent || '' }; })()",
+        "(() => { const t = document.querySelector('[data-inner]'); return { users: t.querySelectorAll('.msg-user').length, agentReplies: t.querySelectorAll('.msg-agent').length, steps: t.querySelectorAll('.tool-row').length, errors: Array.from(t.querySelectorAll('.err')).map((e) => e.textContent.slice(0, 300)), notice: (document.querySelector('[data-notice]').textContent || '').slice(0, 300), lastReply: (Array.from(t.querySelectorAll('.msg-agent .md')).pop() || {}).textContent || '' }; })()",
       );
       report.turn.finished = finished;
       report.turn.seconds = Math.round((Date.now() - (end - limit)) / 1000);
@@ -389,12 +389,12 @@ async function uiChecks({ js, sleep, shot, waitFor, win, report }) {
 
   // Tool step details: open a steps block, then one step's input and result.
   ui.stepDetail = await js(`(async () => {
-    const steps = Array.from(document.querySelectorAll('.steps')).find((s) => s.querySelector('.step-detail'));
+    const steps = Array.from(document.querySelectorAll('.steps')).find((s) => s.querySelector('details.tool-row[data-step]'));
     if (!steps) return { ok: false, why: 'no step with details' };
     if (!steps.classList.contains('is-open')) steps.querySelector('[data-toggle]').click();
     await new Promise((r) => setTimeout(r, 300));
     const again = document.querySelector('[data-steps="' + steps.dataset.steps + '"]');
-    const d = again.querySelector('.step-detail');
+    const d = again.querySelector('details.tool-row[data-step]');
     d.querySelector('summary').click();
     await new Promise((r) => setTimeout(r, 300));
     const pre = d.querySelectorAll('pre');

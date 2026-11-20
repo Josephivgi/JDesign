@@ -111,11 +111,8 @@ export function renderEditor(main, projectId) {
     '<span class="topbar-sep"></span>' +
     '<button class="icon-btn" data-toggle-chat title="Show or hide the chat (Ctrl J)" aria-label="Chat panel">' + icon("message") + "</button>" +
     "</header>" +
-    (store.prefs.editorTipsSeen
-      ? ""
-      : '<div class="tips" data-tips role="note">' + icon("info", "i-sm") +
-        "<span data-tips-text></span>" +
-        '<button class="icon-btn icon-btn-sm" data-tips-close title="Hide tips" aria-label="Hide tips">' + icon("x", "i-sm") + "</button></div>") +
+    // No tips banner: the empty stage, the chat starters and each button's own
+    // tooltip already say what it said, and it took a row from the picture.
     '<div class="workbench" data-bench>' +
     '<aside class="media-rail" data-rail>' +
     '<div class="panel-head"><h3>Media</h3><span class="panel-count" data-media-count></span><button class="icon-btn icon-btn-sm" data-add-media title="Add media from your library" aria-label="Add media">' + icon("plus") + "</button></div>" +
@@ -219,7 +216,6 @@ export function renderEditor(main, projectId) {
       exportWrap.title = exportReason;
       exportWrap.classList.toggle("is-off", !exportable);
     }
-    paintTips();
     // This clip has edits only a render bakes in, and no finished video of
     // its own, or one made before the latest edits.
     const clip = selectedAsset();
@@ -232,21 +228,6 @@ export function renderEditor(main, projectId) {
     $("[data-render-now]").title = stale ? "Your latest edits are not in the finished video yet. Render it again." : "Make the finished video with your cuts and captions";
     $("[data-rail]").classList.toggle("is-closed", !st.mediaOpen);
     bench.classList.toggle("no-chat", !st.chatOpen);
-  };
-
-  // Tips that match what is on screen now, never buttons that are hidden.
-  const paintTips = () => {
-    const el = $("[data-tips-text]");
-    if (!el || !st.project) return;
-    const hasClips = assets().some((a) => !a.missing);
-    const hasVideo = projectRenders(st.project).length > 0;
-    const prevShown = !$("[data-previous]").classList.contains("hidden");
-    const designShown = !$("[data-edit-design]").classList.contains("hidden");
-    let tip;
-    if (!hasClips && !hasVideo) tip = "Add clips with + in the Media panel, or ask the agent in the chat to make something from scratch. Type <kbd>/</kbd> there to see ready workflows.";
-    else if (!hasVideo) tip = "Tell the agent what to change in the chat, or type <kbd>/</kbd> for workflows like /edit and /captions. The finished video shows up under the stage.";
-    else tip = "Export saves the finished video." + (designShown ? " Edit design reopens this design's form." : "") + (prevShown ? " Previous version undoes the last clip change." : "") + " Type <kbd>/</kbd> in the chat for /review and /improve.";
-    el.innerHTML = tip;
   };
 
   const paintAssets = () => {
@@ -279,11 +260,14 @@ export function renderEditor(main, projectId) {
       const flags = [];
       if (on) flags.push("On stage");
       if (edited) flags.push("Edited");
+      // The state goes first: it is the part that must never be the text the
+      // narrow panel cuts off.
+      const line = (flags.length ? '<span class="asset-flag">' + esc(flags.join(" \u00b7 ")) + "</span>" + (meta ? " \u00b7 " : "") : "") + esc(meta);
       return (
         '<div class="asset' + (on ? " is-on" : "") + (a.missing ? " is-missing" : "") + '" data-asset="' + esc(a.id) + '" role="button" tabindex="0">' +
         (a.missing ? '<div class="asset-thumb">' + icon("alert", "i-sm") + "</div>" : thumbMarkup(a, "asset-thumb")) +
         '<div class="asset-text"><strong title="' + esc(displayName(a)) + '">' + esc(displayName(a)) + "</strong>" +
-        "<small>" + esc(meta) + (flags.length ? ' <span class="asset-flag">' + esc(flags.join(" \u00b7 ")) + "</span>" : "") + "</small></div>" +
+        '<small title="' + esc((flags.length ? flags.join(" \u00b7 ") + " \u00b7 " : "") + meta) + '">' + line + "</small></div>" +
         '<button class="icon-btn icon-btn-sm" data-asset-more="' + esc(a.id) + '" title="More" aria-label="More for ' + esc(displayName(a)) + '">' + icon("more") + "</button></div>"
       );
     }).join("");
@@ -319,27 +303,20 @@ export function renderEditor(main, projectId) {
     const [rw, rh] = String(st.project.aspectRatio || "16/9").split("/").map(Number);
     stage.dataset.ratio = rw / rh;
     if (!item) {
-      // A new project: three plain steps. The panel is not a video frame, so it
-      // sizes to its content and never clips the third step.
+      // A new project: the dark frame the video will fill, in the project's
+      // shape, with the two ways to start. Not a numbered guide.
       stage.classList.add("is-empty");
       stage.removeAttribute("tabindex");
       stage.removeAttribute("role");
       stage.removeAttribute("aria-label");
-      stage.style.width = "";
-      stage.style.height = "";
-      stage.style.marginTop = "";
-      const hasClips = assets().some((a) => !a.missing);
-      const step = (n, done, title, text, action) =>
-        '<li class="' + (done ? "is-done" : "") + '"><span class="step-n">' + (done ? icon("check", "i-sm") : n) + "</span>" +
-        '<div class="grow"><strong>' + title + "</strong><span>" + text + "</span></div>" + (action || "") + "</li>";
       stage.innerHTML =
-        '<div class="stage-empty stage-guide"><strong>Make your video in three steps</strong><ol>' +
-        step(1, hasClips, "Add your clips", "Videos, photos or music. Skip this to make something from scratch.", '<button type="button" class="btn btn-sm" data-guide-add>' + icon("plus", "i-sm") + "Add media</button>") +
-        step(2, false, "Tell the agent what you want", "For example: a 30 second highlight with captions.", '<button type="button" class="btn btn-sm btn-primary" data-guide-ask>' + icon("sparkles", "i-sm") + "Write it</button>") +
-        // No Export button here: it only ever exists once a video does, and a
-        // disabled button in a guide is a dead end.
-        step(3, false, "Export the finished video", "It shows up here when the agent is done.", "") +
-        "</ol></div>";
+        '<div class="stage-empty stage-start">' + icon("film", "i-xl") +
+        "<strong>Your video plays here</strong>" +
+        "<p>Add clips to edit, or ask the agent to make a video from scratch.</p>" +
+        '<div class="stage-start-actions">' +
+        '<button type="button" class="btn" data-guide-add>' + icon("plus", "i-sm") + "Add media</button>" +
+        '<button type="button" class="btn btn-primary" data-guide-ask>' + icon("message", "i-sm") + "Ask the agent</button>" +
+        "</div></div>";
       stage.querySelector("[data-guide-add]").addEventListener("click", addMedia);
       stage.querySelector("[data-guide-ask]").addEventListener("click", () => {
         if (!st.chatOpen) toggleChat();
@@ -377,15 +354,27 @@ export function renderEditor(main, projectId) {
     const wrap = $("[data-stage-wrap]");
     const stage = $("[data-stage]");
     if (!wrap || !stage) return;
-    // The empty guide is a panel, not a video frame: it sizes to its content.
+    const ratio = Number(stage.dataset.ratio) || 16 / 9;
+    const pad = 36;
+    // The empty frame keeps the project's shape, so the ratio picker shows what
+    // it does before there is a picture. The shape is a floor, not a fixed
+    // size: a frame too short for its own words grows to hold them.
     if (stage.classList.contains("is-empty")) {
-      stage.style.width = "";
+      const maxW = Math.max(80, wrap.clientWidth - pad);
+      const maxH = Math.max(60, wrap.clientHeight - pad);
+      let ew = Math.min(maxW, 720);
+      let eh = ew / ratio;
+      if (eh > maxH) {
+        eh = maxH;
+        ew = eh * ratio;
+      }
+      stage.style.width = Math.floor(Math.max(ew, Math.min(maxW, 264))) + "px";
       stage.style.height = "";
+      stage.style.minHeight = Math.floor(eh) + "px";
       stage.style.marginTop = "";
       return;
     }
-    const ratio = Number(stage.dataset.ratio) || 16 / 9;
-    const pad = 36;
+    stage.style.minHeight = "";
     const top = 34;
     const W = Math.max(80, wrap.clientWidth - pad);
     const H = Math.max(60, wrap.clientHeight - pad - top);
@@ -450,8 +439,8 @@ export function renderEditor(main, projectId) {
       (renders.length
         ? '<div class="outputs-list">' + renders.map((r) =>
             '<div class="output' + (on && on.id === r.id ? " is-on" : "") + '" data-output="' + esc(r.id) + '" role="button" tabindex="0">' +
-            '<div style="position:relative">' + thumbMarkup(r) + (r.durationMs ? '<span class="tile-badge">' + esc(mediaMeta(r)) + "</span>" : "") + "</div>" +
-            '<div class="output-meta"><div class="grow" style="min-width:0"><strong class="ellipsis" style="display:block" title="' + esc(r.name || "Video") + '">' + esc(r.name || "Video") + '</strong><small class="faint">' + (r.current ? '<span class="pill pill-accent" title="The newest video of a clip in this project">Current</span> ' : "") + esc(timeAgo(r.createdAt)) + (r.current ? "" : " · earlier version") + "</small></div>" +
+            '<div class="output-thumb">' + thumbMarkup(r) + (r.durationMs ? '<span class="tile-badge">' + esc(mediaMeta(r)) + "</span>" : "") + "</div>" +
+            '<div class="output-meta"><div class="grow"><strong title="' + esc(r.name || "Video") + '">' + esc(r.name || "Video") + '</strong><small class="faint">' + (r.current ? '<span class="pill pill-accent" title="The newest video of a clip in this project">Current</span>' : "") + "<span>" + esc(timeAgo(r.createdAt)) + (r.current ? "" : " · earlier version") + "</span></small></div>" +
             '<button class="icon-btn icon-btn-sm" data-output-more="' + esc(r.id) + '" title="More" aria-label="More for this video">' + icon("more") + "</button></div></div>").join("") + "</div>"
         : '<div class="outputs-empty">Videos the agent makes show up here. Ask it to make the video when the edit looks right.</div>');
   };
@@ -679,11 +668,6 @@ export function renderEditor(main, projectId) {
     toast("Wait for the agent to finish, or stop it first.", true);
     return true;
   };
-  $("[data-tips-close]")?.addEventListener("click", () => {
-    $("[data-tips]").remove();
-    void setPrefs({ editorTipsSeen: true });
-    requestAnimationFrame(fitStage);
-  });
   $("[data-render-now]").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     if (button.disabled || agentBusy()) return;

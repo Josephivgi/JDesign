@@ -276,7 +276,10 @@
 
     drawOverlays(ctx) {
       const cs = getComputedStyle(document.documentElement);
-      const accent = cs.getPropertyValue("--accent").trim() || "#6b5cff";
+      // Guides on the paper use their own token: the paper is not themed, so
+      // the theme ink (white in dark) would vanish on it.
+      const accent = cs.getPropertyValue("--canvas-accent").trim() || "#15161a";
+      const halo = "rgba(255,255,255,0.85)";
       const s = this.view.s;
       const d = this.doc;
       const px = (v) => (this.view.r ? v : Math.round(v) + 0.5);
@@ -305,13 +308,14 @@
         if (f) {
           const ids = this.groupOf(f.item);
           ctx.save();
-          ctx.strokeStyle = accent;
-          ctx.globalAlpha = 0.7;
-          ctx.lineWidth = 1;
           for (const id of ids) {
             const g = G.findItem(this.doc, id);
             if (!g) continue;
             const b = G.bounds(g.item);
+            // A light line under the dark one keeps the outline readable on dark paint.
+            ctx.globalAlpha = 1; ctx.strokeStyle = halo; ctx.lineWidth = 3;
+            ctx.strokeRect(px(b.x * s), px(b.y * s), Math.round(b.w * s), Math.round(b.h * s));
+            ctx.globalAlpha = 0.8; ctx.strokeStyle = accent; ctx.lineWidth = 1;
             ctx.strokeRect(px(b.x * s), px(b.y * s), Math.round(b.w * s), Math.round(b.h * s));
           }
           ctx.restore();
@@ -326,6 +330,9 @@
           const bw = Math.max(1, box.w * s), bh = Math.max(1, box.h * s);
           const x0 = px(box.x * s), y0 = px(box.y * s), x1 = px(box.x * s + bw), y1 = px(box.y * s + bh);
           ctx.save();
+          ctx.strokeStyle = halo;
+          ctx.lineWidth = 3.5;
+          ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
           ctx.strokeStyle = accent;
           ctx.lineWidth = 1.5;
           ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
@@ -447,7 +454,7 @@
       const surface = cs.getPropertyValue("--surface").trim() || "#ffffff";
       const line = cs.getPropertyValue("--line").trim() || "#ddd";
       const text = cs.getPropertyValue("--text-3").trim() || "#888";
-      const accent = cs.getPropertyValue("--accent").trim() || "#6b5cff";
+      const accent = cs.getPropertyValue("--text").trim() || "#15161a";
       const railRight = (() => { const r = this.stage.querySelector(".rail"); if (!r) return 0; const a = r.getBoundingClientRect(), b = this.stage.getBoundingClientRect(); return a.right - b.left + 6; })();
       const topY = this.view.r ? -RULER : Math.min(d.height * s - RULER, Math.max(-RULER, -this.view.y));
       const leftX = this.view.r ? -RULER : Math.min(d.width * s - RULER, Math.max(-RULER, railRight - this.view.x));
@@ -455,7 +462,7 @@
       const step = steps.find((v) => v * s >= 56) || 5000;
       const minor = step / (step % 5 === 0 ? 5 : 2);
       ctx.save();
-      ctx.font = "600 9.5px Inter, Segoe UI, sans-serif";
+      ctx.font = "500 12px Inter, Segoe UI, sans-serif";
       ctx.textBaseline = "top";
       const band = (horiz) => {
         ctx.fillStyle = surface;

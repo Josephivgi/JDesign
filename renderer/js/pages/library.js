@@ -1,4 +1,4 @@
-import { api, store, on, emit, refreshSnapshot, refreshProjects, mediaUrlFor } from "../store.js";
+import { api, store, on, emit, refreshSnapshot, refreshProjects, mediaUrlFor, thumbFor } from "../store.js";
 import { esc, icon, toast, showMenu, confirmDialog, promptDialog, openDialog, formatBytes, timeAgo, errorText } from "../ui.js";
 import { thumbMarkup, mediaMeta, pickAndImport, importPaths, wireDrop, backfillPosters, displayName } from "../media.js";
 
@@ -49,9 +49,13 @@ function filtered() {
 
 function preview(item) {
   const url = mediaUrlFor(item);
+  // The player takes the video's own shape and shows its still at once, so
+  // the dialog opens at its final size instead of jumping when the file loads.
+  const poster = thumbFor(item);
+  const shape = item.videoWidth && item.videoHeight ? ";aspect-ratio:" + Number(item.videoWidth) + " / " + Number(item.videoHeight) : "";
   const media =
     item.kind === "video"
-      ? '<video src="' + esc(url) + '" controls autoplay style="width:100%;max-height:62vh;background:var(--stage);border-radius:8px"></video>'
+      ? '<video src="' + esc(url) + '" controls autoplay' + (poster ? ' poster="' + esc(poster) + '"' : "") + ' style="width:100%;max-height:62vh;background:var(--stage);border-radius:8px' + shape + '"></video>'
       : item.kind === "audio"
         ? '<audio src="' + esc(url) + '" controls autoplay style="width:100%"></audio>'
         : '<img src="' + esc(url) + '" alt="" style="max-width:100%;max-height:62vh;margin:auto;border-radius:8px">';
@@ -119,7 +123,7 @@ export function renderLibrary(main) {
       '<div class="media-grid">' +
       items.map((item) =>
         '<div class="tile' + (item.kind === "audio" ? " is-audio" : "") + '" data-id="' + esc(item.id) + '" role="button" tabindex="0" draggable="false">' +
-        '<div style="position:relative">' + thumbMarkup(item) +
+        '<div class="tile-shot">' + thumbMarkup(item) +
         // Audio plays right on the tile; its big music icon already says what it is.
         (item.kind === "audio"
           ? '<button class="icon-btn tile-play" data-play="' + esc(item.id) + '" title="' + (playingId === item.id ? "Stop" : "Play") + '" aria-label="' + (playingId === item.id ? "Stop " : "Play ") + esc(displayName(item)) + '">' + icon(playingId === item.id ? "stop" : "play") + "</button>"

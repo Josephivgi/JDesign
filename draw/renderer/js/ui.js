@@ -89,11 +89,18 @@
     });
   }
 
+  // At most three toasts show at once, and saying the same thing again
+  // replaces the old one, so a burst never grows into a tall stack. Where
+  // they sit is in app.css (.toasts): clear of the editor's controls.
+  const MAX_TOASTS = 3;
   let toastBox = null;
   function toast(text, opts) {
     const o = opts || {};
     if (!toastBox) { toastBox = el('<div class="toasts" aria-live="polite"></div>'); document.body.appendChild(toastBox); }
-    const t = el(`<div class="toast ${o.problem ? "problem" : ""}">${o.problem ? icon("alert") : ""}<span>${esc(text)}</span></div>`);
+    const t = el(`<div class="toast ${o.problem ? "problem" : ""}" role="${o.problem ? "alert" : "status"}">${o.problem ? icon("alert") : ""}<span>${esc(text)}</span></div>`);
+    t.dataset.text = String(text);
+    for (const old of [...toastBox.children]) if (old.dataset.text === t.dataset.text) old.remove();
+    while (toastBox.children.length >= MAX_TOASTS) toastBox.firstElementChild.remove();
     if (o.action) {
       const b = el(`<button type="button">${esc(o.action.label)}</button>`);
       b.addEventListener("click", () => { t.remove(); o.action.onClick(); });
@@ -101,6 +108,14 @@
     }
     toastBox.appendChild(t);
     setTimeout(() => t.remove(), o.ms || (o.action ? 6000 : 2600));
+  }
+
+  // The accent picked in Video's Settings > Appearance. Mono (black in
+  // light, white in dark) is the default and needs no attribute.
+  const ACCENTS = ["iris", "blue", "teal", "green", "amber", "rose"];
+  function applyAccent(accent) {
+    if (ACCENTS.includes(accent)) document.documentElement.dataset.accent = accent;
+    else delete document.documentElement.dataset.accent;
   }
 
   async function applyTheme(mode) {
@@ -125,5 +140,5 @@
     return new Date(ms).toLocaleDateString();
   }
 
-  window.UI = { esc, el, showMenu, closeMenu, openDialog, toast, applyTheme, timeAgo };
+  window.UI = { esc, el, showMenu, closeMenu, openDialog, toast, applyTheme, applyAccent, timeAgo };
 })();

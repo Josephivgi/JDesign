@@ -16,13 +16,15 @@ const RATIOS = [
 // Ideas start a workflow. The ones that work on footage ask for a video
 // first when none is attached, so the agent never starts with nothing.
 // `finish` ideas end mid-sentence on purpose: the caret waits for the rest.
+// Each idea carries the icon of what it makes, the same one its workflow has
+// in the / menu where there is one, so six chips do not share one mark.
 const IDEAS = [
-  { text: "/animate A 10 second animated logo intro for my channel called ", label: "Animated logo intro", finish: "your channel name" },
-  { text: "/explainer A 15 second explainer about ", label: "Make an explainer", finish: "what it is about" },
-  { text: "/animate A title card that says Coming Soon", label: "Coming soon card" },
-  { text: "/short ", label: "Make a vertical short", clip: true },
-  { text: "/captions ", label: "Add captions", clip: true },
-  { text: "/edit Cut this into a 30 second highlight", label: "30 second highlight", clip: true },
+  { text: "/animate A 10 second animated logo intro for my channel called ", label: "Animated logo intro", icon: "play", finish: "your channel name" },
+  { text: "/explainer A 15 second explainer about ", label: "Make an explainer", icon: "presentation", finish: "what it is about" },
+  { text: "/animate A title card that says Coming Soon", label: "Coming soon card", icon: "ratio" },
+  { text: "/short ", label: "Make a vertical short", icon: "phone", clip: true },
+  { text: "/captions ", label: "Add captions", icon: "captions", clip: true },
+  { text: "/edit Cut this into a 30 second highlight", label: "30 second highlight", icon: "scissors", clip: true },
 ];
 
 // What the launcher holds survives a trip to another page.
@@ -59,7 +61,11 @@ function projectThumb(project) {
   // No picture yet: say so plainly, in the project's frame shape.
   const [w, h] = String(project.aspectRatio || "16/9").split("/").map(Number);
   const ratio = w && h ? w / h : 16 / 9;
-  const style = ratio >= 1 ? "width:46%;aspect-ratio:" + w + "/" + h : "height:62%;aspect-ratio:" + w + "/" + h;
+  // Sized by width in every shape, so the frame and its label always fit the
+  // card: a wide frame is 40% across, a square or tall one about half as high
+  // as the card.
+  const width = ratio > 1 ? 40 : Math.round(30 * ratio * 10) / 10;
+  const style = "width:" + width + "%;aspect-ratio:" + (w && h ? w + "/" + h : "16/9");
   return '<span class="proj-frame" style="' + style + '">' + icon("plus", "i-sm") + '</span><span class="proj-empty-text">No media yet</span>';
 }
 
@@ -162,7 +168,7 @@ export function renderHome(main) {
       '<button type="button" class="btn btn-ghost" data-blank title="Start an empty project and add clips yourself">' + icon("plus", "i-sm") + "<span>Blank project</span></button>" +
       '<button type="submit" class="btn btn-primary" data-create' + (ready ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
       "</div></form>" +
-      '<div class="chips">' + IDEAS.map((idea, i) => '<button type="button" class="chip" data-idea="' + i + '" title="' + esc(idea.text.trim()) + (idea.clip ? " (asks you to pick a video)" : "") + '">' + icon("sparkles", "i-sm") + esc(idea.label) + "</button>").join("") + "</div>" +
+      '<div class="chips">' + IDEAS.map((idea, i) => '<button type="button" class="chip" data-idea="' + i + '" title="' + esc(idea.text.trim()) + (idea.clip ? " (asks you to pick a video)" : "") + '">' + icon(idea.icon, "i-sm") + esc(idea.label) + "</button>").join("") + "</div>" +
       (projectsFirst ? projectsHtml + '<div class="gallery" data-gallery></div>' : '<div class="gallery" data-gallery></div>' + projectsHtml);
     paintPins();
     wire();
@@ -174,8 +180,9 @@ export function renderHome(main) {
   };
 
   function projectList(projects) {
-    if (!projects.length) return '<div class="card empty">' + icon("film", "i-xl") + "<h3>No projects yet</h3><p>Describe a video above, or start a blank project and add your clips.</p>" +
-      '<button type="button" class="btn btn-sm" data-blank style="margin-top:10px">' + icon("plus") + "Blank project</button></div>";
+    // One quiet line: the launcher above already holds Create and Blank
+    // project, so this state does not repeat them or push the page down.
+    if (!projects.length) return '<p class="proj-none">No projects yet. The videos you make show up here.</p>';
     const rows = sortedProjects(projects.slice());
     if (!rows.length) return '<div class="card empty"><p>No project matches “' + esc(list.query) + '”.</p></div>';
     return '<div class="grid">' + rows.map((p) => {

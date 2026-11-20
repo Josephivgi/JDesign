@@ -547,12 +547,24 @@ export function mountChat(root, ctx) {
       const prevAgent = items.slice(0, index).reverse().find((x) => x.type === "agent" || x.type === "user");
       const prevWho = prevAgent && prevAgent.type === "agent" ? prevAgent.harnessId || (st.chat && st.chat.harnessId) || st.harnessId : "";
       const showTag = !prevAgent || prevAgent.type === "user" || prevWho !== who;
+      // Read aloud and Copy sit under the last thing the agent said in a turn.
+      // The short notes it writes between tool calls stay tight against the
+      // steps around them instead of each keeping an empty row.
+      const rest = items.slice(index + 1);
+      const nextUser = rest.findIndex((x) => x.type === "user");
+      const lastOfTurn = !(nextUser < 0 ? rest : rest.slice(0, nextUser)).some((x) => x.type === "agent");
+      // On the newest reply the two actions are in view at rest; on older
+      // ones they wait for the pointer or the keyboard.
+      const newest = lastOfTurn && nextUser < 0;
       return (
-        '<div class="msg-agent">' +
+        '<div class="msg-agent' + (newest ? " is-latest" : "") + '">' +
         (showTag ? '<div class="agent-tag">' + agentAvatar(who) + esc(agentName(who)) + "</div>" : "") +
         '<div class="md">' + renderMarkdown(item.text) + "</div>" +
-        '<div class="meta agent-meta"><button class="link-btn" data-say="' + index + '">' + (st.saying === index && isSpeaking() ? "Stop reading" : "Read aloud") + "</button>" +
-        '<button class="link-btn" data-copy-text="' + index + '">Copy</button></div></div>'
+        (lastOfTurn
+          ? '<div class="meta agent-meta"><button class="link-btn" data-say="' + index + '">' + (st.saying === index && isSpeaking() ? "Stop reading" : "Read aloud") + "</button>" +
+            '<button class="link-btn" data-copy-text="' + index + '">Copy</button></div>'
+          : "") +
+        "</div>"
       );
     }
     if (item.type === "steps") {
@@ -561,13 +573,25 @@ export function mountChat(root, ctx) {
       const live = running.length > 0;
       const open = isOpen(item.key, Boolean(store.prefs.showToolDetails));
       const last = running[running.length - 1] || item.items[item.items.length - 1];
+      // The folded row says what the agent did, not only how many calls it
+      // made: one call shows its name, several show the count and the first
+      // two names.
+      const names = [];
+      for (const s of item.items) {
+        const n = prettyTool(s.title);
+        if (!names.includes(n)) names.push(n);
+      }
+      const one = item.items.length === 1;
+      const what = one ? "" : names.slice(0, 2).join(", ") + (names.length > 2 ? " and " + (names.length - 2) + " more" : "");
       const label = live
-        ? '<span class="shimmer">' + esc(prettyTool(last.title)) + "</span>"
-        : esc(item.items.length + (item.items.length === 1 ? " step" : " steps")) + (failed ? ' <span class="problem bad" style="font-size:var(--fs-xs)">' + icon("alertCircle", "i-sm") + failed + " failed</span>" : "");
+        ? '<span class="steps-count shimmer">' + esc(prettyTool(last.title)) + "</span>"
+        : '<span class="steps-count">' + esc(one ? names[0] : item.items.length + " steps") + "</span>" +
+          (failed ? '<span class="problem bad steps-failed">' + icon("alertCircle", "i-sm") + failed + " failed</span>" : "") +
+          (what ? '<span class="steps-what">' + esc(what) + "</span>" : "");
       return (
         '<div class="steps' + (open ? " is-open" : "") + '" data-steps="' + esc(item.key) + '">' +
-        '<button class="steps-head" data-toggle="' + esc(item.key) + '">' +
-        (live ? icon("loader", "i-sm spin") : icon("tool", "i-sm")) + "<span>" + label + "</span>" + icon("chevDown", "i-sm chev") + "</button>" +
+        '<button class="steps-head" data-toggle="' + esc(item.key) + '" aria-expanded="' + (open ? "true" : "false") + '" title="' + (open ? "Hide the steps" : "Show each step") + '">' +
+        (live ? icon("loader", "i-sm spin") : icon("tool", "i-sm")) + label + icon("chevDown", "i-sm chev") + "</button>" +
         '<div class="steps-list">' +
         item.items.map((s, i) => {
           // One row per call: a status word, the plain name, then a fold with
@@ -670,7 +694,7 @@ export function mountChat(root, ctx) {
       inner.innerHTML =
         '<div class="chat-empty">' + agentAvatar(st.harnessId) +
         "<h3>" + esc(h ? "Edit with " + h.name : "Pick an agent to start") + "</h3>" +
-        "<p>Tell it what you want in plain words. It can see this project's clips, cut and caption them, add voiceovers and music, make animations, and render the finished video.</p>" +
+        "<p>Say what you want in plain words. It can cut and caption clips, add voice and music, make animations, and render the video.</p>" +
         '<div class="suggest">' + starterChips() + suggestionsFor(ctx.getProject && ctx.getProject()).slice(0, 2).map((s) => '<button type="button" class="chip" data-suggest="' + esc(s) + '" title="' + esc(s) + '">' + icon("message", "i-sm") + '<span class="chip-text">' + esc(s) + "</span></button>").join("") + "</div></div>";
       return;
     }
@@ -747,7 +771,7 @@ export function mountChat(root, ctx) {
   const paintComposer = () => {
     const h = harnessById(st.harnessId);
     $("[data-agent-slot]").innerHTML =
-      '<button class="picker" data-agent title="Agent">' + agentAvatar(st.harnessId) + '<span class="ellipsis">' + esc(h ? h.name : "Choose agent") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
+      '<button class="picker" data-agent title="' + esc(h ? "Agent: " + h.name : "Choose agent") + '" aria-label="' + esc(h ? "Agent: " + h.name : "Choose agent") + '">' + agentAvatar(st.harnessId) + '<span class="ellipsis">' + esc(h ? h.name : "Choose agent") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
     $("[data-model-slot]").innerHTML = st.harnessId ? modelPickerButton(st.harnessId, st.modelId, session()) : "";
     const working = busy();
     const btn = $("[data-send]");
@@ -947,7 +971,17 @@ export function mountChat(root, ctx) {
       const el = toggle.parentElement;
       const nowOpen = el.classList.contains("steps") ? !el.classList.contains("is-open") : el.classList.contains("is-closed");
       st.open.set(key, nowOpen);
+      // The row that was clicked stays where it is on screen and keeps the
+      // keyboard focus. A repaint near the bottom would otherwise jump to
+      // the newest message and carry the row away from the pointer.
+      const top = toggle.getBoundingClientRect().top;
       paintThread();
+      const again = Array.from(root.querySelectorAll("[data-toggle]")).find((b) => b.dataset.toggle === key);
+      if (again) {
+        const thread = $("[data-thread]");
+        thread.scrollTop += again.getBoundingClientRect().top - top;
+        again.focus({ preventScroll: true });
+      }
       return;
     }
     const perm = t.closest("[data-perm]");
@@ -1258,6 +1292,9 @@ const TOOL_NAMES = {
   execute: "Run a command", bash: "Run a command", shell: "Run a command", read: "Read a file", read_file: "Read a file", write: "Write a file",
   write_file: "Write a file", edit: "Edit a file", glob: "Find files", grep: "Search files", fetch: "Fetch a web page", web_search: "Search the web",
   todowrite: "Update the plan", task: "Run a subtask",
+  // Names Claude Code and other agents send as one word.
+  toolsearch: "Find tools", webfetch: "Fetch a web page", websearch: "Search the web", skill: "Use a skill",
+  master_instructions: "Read your instructions", multiedit: "Edit a file", notebookedit: "Edit a notebook", ls: "List files",
 };
 function prettyTool(title) {
   let t = String(title || "Tool call");

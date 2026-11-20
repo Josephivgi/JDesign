@@ -116,7 +116,6 @@
         <button type="button" class="icon-btn undo" title="Undo (Ctrl+Z)" aria-label="Undo">${icon("undo")}</button>
         <button type="button" class="icon-btn redo" title="Redo (Ctrl+Y)" aria-label="Redo">${icon("redo")}</button>
         <span class="spacer"></span>
-        <button type="button" class="icon-btn to-video" title="Switch to the Video studio" aria-label="Switch to the Video studio">${icon("film")}</button>
         <div class="zoom no-drag">
           <button type="button" class="icon-btn zout" title="Zoom out" aria-label="Zoom out">${icon("minus")}</button>
           <button type="button" class="pct" title="View: zoom, turn, grid, rulers">100%</button>
@@ -185,7 +184,6 @@
       top.querySelector(".zout").addEventListener("click", () => this.cv.zoomAt(0.8));
       top.querySelector(".pct").addEventListener("click", (e) => this.viewMenu(e.currentTarget));
       top.querySelector(".canvas-btn").addEventListener("click", () => this.canvasDialog());
-      top.querySelector(".to-video").addEventListener("click", () => jdraw.call("studio:switch", "video"));
       top.querySelector(".export").addEventListener("click", (e) => this.exportMenu(e.currentTarget));
       top.querySelector(".panel-toggle").addEventListener("click", () => this.setPanel(!this.panelOpen));
       top.querySelector(".layers-toggle").addEventListener("click", () => this.setLayersOpen(!this.layersOpen));
@@ -324,6 +322,7 @@
 
       if (tool === "select") {
         this.renderSelectDock(seg, iconBtn, sep);
+        this.groupDock();
         return;
       }
 
@@ -343,6 +342,19 @@
       }
       if (tool === "hand") this.dock.appendChild(el(`<span class="dock-note">Drag to move around. Scroll to zoom.</span>`));
       if (tool === "eyedropper") this.dock.appendChild(el(`<span class="dock-note">Click the drawing to pick a color</span>`));
+      this.groupDock();
+    }
+
+    // The dock is built as one flat run with separators. Each run between two
+    // separators becomes a group, so a narrow dock wraps whole groups (tool
+    // options, color, sliders) and never leaves one slider alone on a row.
+    groupDock() {
+      let group = null;
+      for (const node of [...this.dock.children]) {
+        if (node.classList.contains("vsep")) { group = null; node.remove(); continue; }
+        if (!group) { group = el('<div class="group"></div>'); this.dock.insertBefore(group, node); }
+        group.appendChild(node);
+      }
     }
 
     // Current color, gradient choice and palette.

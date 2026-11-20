@@ -16,7 +16,8 @@ contextBridge.exposeInMainWorld("cutline", {
   saveUserRules: (rules) => ipcRenderer.invoke("user-rules-save", { rules }),
   userRulesDraft: () => ipcRenderer.invoke("user-rules-draft-get"),
   saveUserRulesDraft: (draft) => ipcRenderer.invoke("user-rules-draft-save", { draft }),
-  setChrome: (payload) => ipcRenderer.invoke("set-chrome", payload),
+  // The accent applyLook just set on <html> rides along, so the Draw studio follows it.
+  setChrome: (payload) => ipcRenderer.invoke("set-chrome", Object.assign({}, payload, { accent: document.documentElement.dataset.accent || "mono" })),
   setStudio: (to) => ipcRenderer.invoke("studio-switch", to),
   currentStudio: () => ipcRenderer.invoke("studio-current"),
   onStudioChanged: (handler) => {

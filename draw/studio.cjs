@@ -739,9 +739,11 @@ function createView() {
 // (IPC, store, MCP, agents, the renderer code) is the same code as in the app.
 function createSmokeWindow() {
   const { BrowserWindow } = require("electron");
+  // JDRAW_SMOKE_WIN=1100x720 runs the smoke in a smaller window.
+  const size = /^(\d{3,4})x(\d{3,4})$/.exec(process.env.JDRAW_SMOKE_WIN || "") || [];
   const w = new BrowserWindow({
-    width: 1480,
-    height: 920,
+    width: Number(size[1]) || 1480,
+    height: Number(size[2]) || 920,
     show: false,
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, backgroundThrottling: false, spellcheck: false },
   });
@@ -789,7 +791,12 @@ function registerIpc() {
   handle("app:info", () => ({ version: app.getVersion(), dev: DEV, smoke: SMOKE, dataDir }));
   handle("skills:list", () => require("./lib/styles.cjs").listSkills());
   // One Light / Dark / System choice for the whole app: JV's setting wins.
-  handle("prefs:get", (key, fallback) => (key === "theme" && themeHost.getThemeMode() ? themeHost.getThemeMode() : store.getPref(key, fallback)));
+  handle("prefs:get", (key, fallback) => {
+    if (key === "theme" && themeHost.getThemeMode()) return themeHost.getThemeMode();
+    // The accent is JV's (Settings > Appearance); Draw keeps no accent of its own.
+    if (key === "accent") return (themeHost.getAccent && themeHost.getAccent()) || fallback;
+    return store.getPref(key, fallback);
+  });
   handle("studio:to-video-library", async (name, dataUrl) => {
     if (!hostApi.addToVideoLibrary) throw new Error("The video library is not available.");
     const buf = Buffer.from(String(dataUrl).split(",")[1] || "", "base64");
@@ -1068,7 +1075,7 @@ async function init(opts) {
   dataDir = opts.dataDir;
   onSwitch = opts.onSwitch || onSwitch;
   hostApi = { addToVideoLibrary: opts.addToVideoLibrary };
-  if (opts.getThemeMode) themeHost = { getThemeMode: opts.getThemeMode, setThemeMode: opts.setThemeMode || (() => {}) };
+  if (opts.getThemeMode) themeHost = { getThemeMode: opts.getThemeMode, setThemeMode: opts.setThemeMode || (() => {}), getAccent: opts.getAccent };
   if (opts.onSmokeExit) onSmokeExit = opts.onSmokeExit;
   fs.mkdirSync(dataDir, { recursive: true });
   logFile = path.join(dataDir, "jdraw.log");

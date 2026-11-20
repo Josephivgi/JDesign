@@ -115,10 +115,13 @@ export function modelPickerButton(harnessId, modelId, live, attrs = "data-model"
   // No pick: the agent's own default. Its current model can change between
   // visits, so the button says Default instead of a name that moves.
   const model = modelId ? models.availableModels.find((m) => m.modelId === modelId) : null;
-  const label = model ? splitModel(model).name : modelId ? splitModel({ modelId }).name : "Default model";
+  const label = model ? splitModel(model).name : modelId ? splitModel({ modelId }).name : "";
   const cur = models.availableModels.find((m) => m.modelId === models.currentModelId);
   const tip = model ? "Model: " + (model.name || model.modelId) : "Model: the agent's default" + (cur ? " (now " + splitModel(cur).name + ")" : "");
-  return '<button type="button" class="picker" ' + attrs + ' title="' + esc(tip) + '"><span class="ellipsis">' + esc(label) + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
+  // "Default model" can drop its second word where the row is very narrow
+  // (the chat panel at its smallest), instead of being cut to "Defa...".
+  const text = label ? esc(label) : 'Default<span class="picker-more"> model</span>';
+  return '<button type="button" class="picker" ' + attrs + ' title="' + esc(tip) + '" aria-label="' + esc(tip) + '"><span class="ellipsis">' + text + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
 }
 
 export function openModelMenu(anchor, harnessId, modelId, live, onPick, opts = {}) {

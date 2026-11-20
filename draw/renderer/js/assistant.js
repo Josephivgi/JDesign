@@ -93,8 +93,18 @@
       this.root.appendChild(this.list);
       this.stateEl = el('<div class="agent-state"></div>');
       this.root.appendChild(this.stateEl);
-      this.chipsEl = el('<div class="chips"></div>');
-      this.root.appendChild(this.chipsEl);
+      // One row of suggestions. When there are more than fit, an arrow at the
+      // faded end scrolls the row.
+      this.chipsWrap = el(`<div class="chips-wrap">
+        <button type="button" class="chips-nav prev" title="Earlier suggestions" aria-label="Earlier suggestions">${icon("chevron")}</button>
+        <div class="chips"></div>
+        <button type="button" class="chips-nav next" title="More suggestions" aria-label="More suggestions">${icon("chevron")}</button>
+      </div>`);
+      this.chipsEl = this.chipsWrap.querySelector(".chips");
+      this.root.appendChild(this.chipsWrap);
+      const page = (dir) => { this.chipsEl.scrollLeft += dir * Math.max(120, this.chipsEl.clientWidth * 0.7); this.chipFades(); };
+      this.chipsWrap.querySelector(".prev").addEventListener("click", () => page(-1));
+      this.chipsWrap.querySelector(".next").addEventListener("click", () => page(1));
       // The wheel scrolls the chip row sideways; fades show there is more.
       this.chipsEl.addEventListener("wheel", (e) => {
         if (this.chipsEl.scrollWidth <= this.chipsEl.clientWidth) return;
@@ -269,7 +279,7 @@
       this.chipsEl.innerHTML = "";
       // One row that scrolls sideways, so its height never changes.
       this.chipsEl.classList.toggle("off", this.busy || !this.agent());
-      if (this.busy || !this.agent()) return;
+      if (this.busy || !this.agent()) { this.chipFades(); return; }
       const doc = this.editor.doc;
       const empty = !doc || doc.layers.every((l) => !l.items.length);
       const sel = this.editor.selection.length;
@@ -297,8 +307,11 @@
 
     chipFades() {
       const c = this.chipsEl;
-      c.classList.toggle("more-right", c.scrollLeft + c.clientWidth < c.scrollWidth - 2);
-      c.classList.toggle("more-left", c.scrollLeft > 2);
+      const right = c.scrollLeft + c.clientWidth < c.scrollWidth - 2, left = c.scrollLeft > 2;
+      c.classList.toggle("more-right", right);
+      c.classList.toggle("more-left", left);
+      this.chipsWrap.classList.toggle("more-right", right);
+      this.chipsWrap.classList.toggle("more-left", left);
     }
 
     renderQueued() {

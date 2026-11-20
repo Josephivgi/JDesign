@@ -13,9 +13,11 @@ function logo(name, iconUrl) {
   return '<span class="agent-logo' + (img ? " has-icon" : "") + '">' + (img || esc(initials(name))) + "</span>";
 }
 
+// The state sits on the name line: plain words when the agent is ready, an
+// icon plus a label when it is not.
 function statusMarkup(item) {
-  if (item.available) return '<span style="font-size:var(--fs-sm)">Ready</span>';
-  return '<span class="problem">' + icon("alert", "i-sm") + "Not installed</span>";
+  if (item.available) return '<span class="agent-state">Ready</span>';
+  return '<span class="agent-state"><span class="problem">' + icon("alert", "i-sm") + "Not installed</span></span>";
 }
 
 // The directory area has three honest states: quiet skeleton cards while the
@@ -194,10 +196,9 @@ export function renderAgents(main) {
       (harnesses.length
         ? harnesses.map((h) =>
             '<div class="agent-row">' + logo(h.name, h.icon) +
-            '<div class="grow"><div class="row"><strong' + (h.command ? ' title="' + esc(h.command) + '"' : "") + ">" + esc(h.name) + "</strong>" + (def === h.id ? '<span class="pill pill-accent">Default</span>' : "") + "</div>" +
+            '<div class="grow"><div class="row agent-name"><strong' + (h.command ? ' title="' + esc(h.command) + '"' : "") + ">" + esc(h.name) + "</strong>" + statusMarkup(h) + (def === h.id ? '<span class="pill pill-accent" title="New projects and chats start with this agent">Default</span>' : "") + "</div>" +
             "<p>" + esc(h.description || "") + "</p>" +
             (h.available ? "" : installHint(h.install) + '<p class="faint">Press Refresh after you install it.</p>') + "</div>" +
-            '<div class="agent-state">' + statusMarkup(h) + "</div>" +
             '<div class="agent-actions">' +
             (h.available && def !== h.id ? '<button class="btn btn-sm" data-default="' + esc(h.id) + '">Make default</button>' : "") +
             (h.id.startsWith("registry-") || custom.some((c) => c.id === h.id) || catalog.some((c) => c.id === h.id && c.added)
@@ -210,14 +211,14 @@ export function renderAgents(main) {
           '<div class="card">' + found.map((a) =>
             '<div class="agent-row">' + logo(a.name, a.icon) +
             '<div class="grow"><strong>' + esc(a.name) + "</strong><p>Installed on this computer. Add it to use it in JV.</p></div>" +
-            '<div class="agent-state"></div><div class="agent-actions"><button class="btn btn-sm" data-install="' + esc(a.id) + '">' + icon("plus", "i-sm") + "Add</button></div></div>").join("") + "</div>"
+            '<div class="agent-actions"><button class="btn btn-sm" data-install="' + esc(a.id) + '">' + icon("plus", "i-sm") + "Add</button></div></div>").join("") + "</div>"
         : "") +
       (missing.length
         ? '<details class="advanced" style="margin-top:14px"><summary>' + icon("chevDown", "i-sm chev") + 'Not on this computer <span class="faint">' + missing.length + "</span></summary>" +
           '<div class="card">' + missing.map((h) =>
             '<div class="agent-row">' + logo(h.name, h.icon) +
             '<div class="grow"><strong>' + esc(h.name) + "</strong><p>" + esc(h.description || "") + "</p>" + installHint(h.install) +
-            '<p class="faint">Install it, then press Refresh.</p></div><div class="agent-state"></div><div class="agent-actions"></div></div>').join("") + "</div></details>"
+            '<p class="faint">Install it, then press Refresh.</p></div><div class="agent-actions"></div></div>').join("") + "</div></details>"
         : "") +
       '<div class="section-title">Get more agents' + (registry ? ' <span class="count">' + registry.agents.length + "</span>" : "") + "</div>" +
       '<p class="muted" style="font-size:var(--fs-sm);margin:-6px 0 12px">General AI agents from the public agent directory. The ones marked Works well with JV are tested with video editing. Add installs one for JV only; most need a free or paid account with their maker' +
@@ -235,7 +236,7 @@ export function renderAgents(main) {
             '<div class="agent-row">' + logo(c.name) +
             '<div class="grow"><strong>' + esc(c.name) + "</strong><p>" + esc(c.description || "") + "</p>" +
             (c.available ? "<code>" + esc(c.commandLabel || "") + "</code>" : installHint(c.install)) + "</div>" +
-            '<div class="agent-state"></div><div class="agent-actions">' +
+            '<div class="agent-actions">' +
             (c.added || added.has(c.id)
               ? '<span class="muted" style="font-size:var(--fs-sm)">Added</span>'
               : '<button class="btn btn-sm" data-add="' + esc(c.id) + '">' + icon("plus", "i-sm") + "Add</button>") +

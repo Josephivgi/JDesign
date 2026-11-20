@@ -772,8 +772,79 @@
         return "ok";
       });
 
+      await step("toasts: three at most, clear of the controls", async () => {
+        document.querySelectorAll(".toasts .toast").forEach((t) => t.remove());
+        for (const t of ["Grid on", "Rulers on", "Snap to grid on", "Copied", "Exported", "Copied"]) UI.toast(t, { ms: 8000 });
+        // The hidden window paints slowly, so give the picture time to catch up.
+        await sleep(1500);
+        const toasts = [...document.querySelectorAll(".toasts .toast")];
+        const hit = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        const bad = [];
+        for (const sel of [".dock", ".layers-card", ".rail", ".topbar", ".panel"]) {
+          const n = document.querySelector(sel);
+          if (!n || !n.offsetWidth) continue;
+          if (toasts.some((t) => hit(t.getBoundingClientRect(), n.getBoundingClientRect()))) bad.push(sel);
+        }
+        await capture(app, "02b-toasts");
+        const shown = toasts.map((t) => t.textContent);
+        toasts.forEach((t) => t.remove());
+        if (toasts.length !== 3) throw new Error(`${toasts.length} toasts shown: ${shown.join(", ")}`);
+        if (bad.length) throw new Error("a toast covers " + bad.join(", "));
+        return shown.join(", ");
+      });
+
+      // Extra screenshots for looking at the UI (JDRAW_SMOKE_UI=1): the same
+      // states in light and dark, open menus, and Home with drawings on it.
       if (cfg.ui) {
+        const both = async (name) => {
+          await capture(app, name);
+          await UI.applyTheme("dark"); await sleep(120);
+          await capture(app, name + "-dark");
+          await UI.applyTheme("light"); await sleep(60);
+        };
         await step("dark theme", async () => { await UI.applyTheme("dark"); await sleep(300); await capture(app, "03-dark"); await UI.applyTheme("light"); return "ok"; });
+        await step("ui shots", async () => {
+          ed.setTool("shape"); await both("10-shape");
+          ed.setTool("fill"); await both("11-fill");
+          ed.setTool("select");
+          const some = ed.doc.layers.flatMap((l) => l.items).filter((i) => i.type === "rect").slice(0, 2).map((i) => i.id);
+          ed.selection = some; cv.setSelection(some); ed.renderDock(); ed.assistant.renderChips(); ed.assistant.updateContext();
+          await both("12-select");
+          for (const accent of ["teal", "rose"]) { UI.applyAccent(accent); await sleep(120); cv.draw(); await capture(app, "12-select-accent-" + accent); }
+          UI.applyAccent("mono");
+          document.querySelector(".topbar .pct").click(); await sleep(80);
+          await both("13-view-menu");
+          UI.closeMenu();
+          document.querySelector(".topbar .export").click(); await sleep(80);
+          await capture(app, "14-export-menu");
+          UI.closeMenu();
+          ed.selection = []; cv.setSelection([]); ed.setTool("brush");
+          const next = document.querySelector(".chips-nav.next");
+          if (next && next.offsetWidth) { next.click(); await sleep(80); await capture(app, "15-chips-scrolled"); }
+          ed.assistant.input.value = "/"; ed.assistant.input.dispatchEvent(new Event("input")); await sleep(80);
+          await both("16-slash-menu");
+          ed.assistant.input.value = ""; ed.assistant.input.dispatchEvent(new Event("input"));
+          ed.setPanel(false); await sleep(60); ed.cv.draw();
+          await both("17-panel-closed");
+          ed.setPanel(true);
+          const dlg = ed.canvasDialog(); await sleep(120);
+          await both("18-canvas-dialog");
+          document.querySelector(".scrim .row .btn").click(); await dlg;
+          await app.goHome();
+          await waitFor(() => document.querySelector(".art-card"), 5000, "gallery");
+          await sleep(200);
+          await both("20-home-drawings");
+          document.querySelector(".art-card .more").click(); await sleep(80);
+          await capture(app, "21-home-card-menu");
+          UI.closeMenu();
+          document.querySelector(".settings-btn").click();
+          await waitFor(() => document.querySelector(".skill"), 5000, "skills list");
+          await UI.applyTheme("dark"); await sleep(120);
+          await capture(app, "22-settings-dark");
+          await UI.applyTheme("light");
+          document.querySelector(".scrim .row .btn").click();
+          return "ok";
+        });
       }
 
       }

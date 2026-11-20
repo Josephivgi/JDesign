@@ -25,9 +25,11 @@
 
   app.ready = (async () => {
     const theme = await jdraw.call("prefs:get", "theme", "system").catch(() => "system");
+    UI.applyAccent(await jdraw.call("prefs:get", "accent", "mono").catch(() => "mono"));
     await UI.applyTheme(theme);
     const smoke = await jdraw.call("smoke:config").catch(() => null);
-    jdraw.on("theme:set", ({ mode }) => UI.applyTheme(mode));
+    // Video's Settings > Appearance owns the theme and the accent for both studios.
+    jdraw.on("theme:set", ({ mode, accent }) => { if (accent) UI.applyAccent(accent); UI.applyTheme(mode); });
     await app.goHome();
     if (smoke) Smoke.run(app, smoke);
   })();

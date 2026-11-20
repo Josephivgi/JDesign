@@ -165,6 +165,7 @@ if (!SMOKE && !DRAW_SMOKE && !app.requestSingleInstanceLock()) {
 let currentStudio = "video";
 let drawStudio = null;
 let themeMode = null;
+let themeAccent = null;
 function switchStudio(to) {
   const target = to === "draw" ? "draw" : "video";
   currentStudio = target;
@@ -2301,6 +2302,11 @@ app.whenReady().then(async () => {
       dataDir: path.join(app.getPath("userData"), "draw"),
       onSwitch: switchStudio,
       getThemeMode: () => themeMode,
+      // The accent from Settings > Appearance; before the first set-chrome, the saved one.
+      getAccent: () => {
+        if (themeAccent) return themeAccent;
+        try { return require("./jeditor-ipc.cjs").readPrefs(dataRoot()).accent; } catch { return "mono"; }
+      },
       setThemeMode: (mode) => {
         try { mainWin.webContents.send("studio-theme", { mode }); } catch {}
       },
@@ -2433,12 +2439,13 @@ ipcMain.handle("studio-current", () => ({ studio: currentStudio }));
 ipcMain.handle("set-chrome", (_event, payload) => {
   const theme = payload && payload.theme;
   applyWindowChrome(theme);
-  // The Draw studio follows the same Light / Dark / System choice.
+  // The Draw studio follows the same Light / Dark / System choice and accent.
+  if (payload && ["mono", "iris", "blue", "teal", "green", "amber", "rose"].includes(payload.accent)) themeAccent = payload.accent;
   if (payload && ["light", "dark", "system"].includes(payload.mode)) {
     themeMode = payload.mode;
     try {
       const wc = drawStudio && drawStudio.webContents();
-      if (wc && !wc.isDestroyed()) wc.send("theme:set", { mode: themeMode });
+      if (wc && !wc.isDestroyed()) wc.send("theme:set", { mode: themeMode, accent: themeAccent || undefined });
     } catch (_) {}
   }
   return { theme: chromeTheme(theme) };
@@ -3526,12 +3533,13 @@ async function drawProbe() {
   const wc = drawStudio && drawStudio.webContents();
   if (!wc || wc.isDestroyed()) return { ok: false, error: "no draw view" };
   for (let i = 0; i < 60 && wc.isLoading(); i++) await new Promise((r) => setTimeout(r, 250));
-  const page = await wc.executeJavaScript("({ app: typeof window.App, title: document.title, home: !!document.querySelector('.home'), studioSwitch: !!document.querySelector('[data-studio=video]'), api: typeof window.jdraw })");
+  const page = await wc.executeJavaScript("({ app: typeof window.App, title: document.title, home: !!document.querySelector('.home'), settings: !!document.querySelector('.settings-btn'), api: typeof window.jdraw })");
   const toDraw = switchStudio("draw");
   const shownDraw = drawStudio.isShown();
   const toVideo = switchStudio("video");
   const shownVideo = drawStudio.isShown();
-  const ok = page.app === "object" && page.home && page.studioSwitch && toDraw === "draw" && shownDraw && toVideo === "video" && !shownVideo;
+  // Draw's Home has no studio switch of its own: the rail beside it is the switch.
+  const ok = page.app === "object" && page.home && page.settings && toDraw === "draw" && shownDraw && toVideo === "video" && !shownVideo;
   return { ok, page, toDraw, shownDraw, toVideo, shownVideo };
 }
 
