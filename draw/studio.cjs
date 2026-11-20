@@ -1223,8 +1223,12 @@ function registerIpc() {
     const c = store.chatById(chatId);
     if (!c || c.drawingId !== drawingId) return [];
     return (c.messages || [])
-      .filter((m) => m && (m.role === "user" || m.role === "agent") && String(m.text || "").trim())
+      .filter((m) => m && (m.role === "user" || m.role === "agent") && !m.auto && !m.error && String(m.text || "").trim())
       .map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: String(m.text) }));
+  });
+  handle("chats:imported", ({ chatId, jvChatId }) => {
+    store.setJvChat(chatId, jvChatId);
+    return true;
   });
   const openChat = (id, chatId) => {
     const chat = chatFor(id, chatId);

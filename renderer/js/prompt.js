@@ -91,8 +91,10 @@ export function buildPrompt({ text, projectId, project, workspaceId, chatId, sel
         ? "The user picked Video for this ask: edit the project's video with the jeditor tools. Do not change the drawings. "
         : "") +
     "Read jeditor_get_project with this project id before changing anything, and pass the explicit workspaceId and projectId on every tool call. " +
-    "When there is no footage, make the video from code with jeditor_render_animation instead of asking for media. " +
-    "When the edit is ready, render it with jeditor_render_project so it appears in the project's Finished videos. " +
+    (mode === "draw"
+      ? ""
+      : "When there is no footage, make the video from code with jeditor_render_animation instead of asking for media. " +
+        "When the edit is ready, render it with jeditor_render_project so it appears in the project's Finished videos. ") +
     pinnedNote +
     handNote +
     (context.project.staleRenders.length

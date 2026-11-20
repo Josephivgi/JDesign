@@ -183,35 +183,38 @@ export function renderHome(main) {
     if (!inner.querySelector("[data-chats]")) return;
     let video = [];
     let draw = [];
-    try { video = (await api.editorChats({ workspaceId: store.workspaceId })) || []; } catch {}
+    try { video = (await api.editorChats({ workspaceId: store.workspaceId, page: "ai" })) || []; } catch {}
     try { draw = (await api.jdrawChats()) || []; } catch {}
     const rows = [];
     const projectName = (id) => ((store.projects || []).find((p) => p.id === id) || {}).name || "A project";
     const agentName = (harnessId) => ((store.harnesses || []).find((h) => h.id === harnessId) || {}).name || "";
     for (const c of video) {
       if (!(c.messageCount > 0) && !c.hasAcp) continue;
-      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(c.updatedAt)].filter(Boolean).join(" · "), from: projectName(c.projectId), at: c.updatedAt, ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
+      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(c.updatedAt)].filter(Boolean).join(" · "), from: projectName(c.projectId), at: c.acpTranscriptTailAt || c.updatedAt, ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
     }
+    const haveVideo = new Set(video.map((v) => v.id));
     for (const c of draw) {
+      // A Draw chat already copied into a project chat shows as that chat.
+      if (c.jvChatId && haveVideo.has(c.jvChatId)) continue;
       // An old Draw chat opens in the project that owns its drawing.
       rows.push({ key: "d" + c.id, title: c.title, sub: [c.agentName, timeAgo(c.updated)].filter(Boolean).join(" · "), from: c.drawingName || "A drawing", at: c.updated, ico: "palette", open: async () => {
         const projectId = await api.jdrawProjectOf(c.drawingId).catch(() => "");
         if (!projectId) { toast("That drawing has no project yet", true); return; }
         // The project chat is where chats continue: the Draw conversation
-        // is copied into it once, then reopened from there every time.
-        let chatId = "";
+        // is copied into it once (the link is kept with the Draw chat), then
+        // reopened from there every time.
+        let chatId = c.jvChatId || "";
         try {
-          const done = JSON.parse(localStorage.getItem("jdesign.drawChatImports") || "{}");
-          chatId = done[c.id] || "";
           if (chatId) { const rec = await api.editorChatGet({ id: chatId }); if (!rec || !rec.chat) chatId = ""; }
           if (!chatId) {
             const msgs = (await api.jdrawChatMessages({ drawingId: c.drawingId, chatId: c.id })) || [];
             const rec = await api.editorChatCreate({ workspaceId: store.workspaceId, page: "ai", projectId, model: "" });
             chatId = rec.chat.id;
             await api.editorChatSave({ chatId, messages: msgs, light: true });
-            await api.editorChatUpdate({ id: chatId, patch: { title: c.title }, light: true }).catch(() => {});
-            done[c.id] = chatId;
-            localStorage.setItem("jdesign.drawChatImports", JSON.stringify(done));
+            const patch = { title: c.title };
+            if (c.agent && (store.harnesses || []).some((h) => h.id === c.agent)) patch.harnessId = c.agent;
+            await api.editorChatUpdate({ id: chatId, patch, light: true }).catch(() => {});
+            await api.jdrawChatImported({ chatId: c.id, jvChatId: chatId });
           }
         } catch { chatId = ""; }
         emit("navigate", { page: "editor", params: { projectId, drawingId: c.drawingId, chatId } });

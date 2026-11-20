@@ -300,7 +300,7 @@ export function mountChat(root, ctx) {
 
   // ---------- prompt body ----------
 
-  const promptBody = (text, pins, chatId, userEdits, mode) =>
+  const promptBody = (text, pins, chatId, userEdits, mode, openDrawingId) =>
     buildPrompt({
       text,
       projectId: ctx.projectId,
@@ -312,7 +312,7 @@ export function mountChat(root, ctx) {
       mediaById: (id) => store.mediaById(id),
       userEdits,
       drawings: ctx.drawings ? ctx.drawings() : [],
-      openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "",
+      openDrawingId,
       mode,
     });
 
@@ -398,6 +398,7 @@ export function mountChat(root, ctx) {
     const harnessId = st.harnessId;
     const modelId = st.modelId;
     const mode = st.mode;
+    const openDrawingId = ctx.openDrawingId ? ctx.openDrawingId() : "";
     const pins = st.pins.slice();
     const stillThere = () => (st.chat ? st.chat.id : "") === startChatId;
     try {
@@ -424,7 +425,7 @@ export function mountChat(root, ctx) {
       }
       // Hand edits on the timeline strip go out once, with this message.
       const userEdits = await api.aiProjectTakeUserEdits({ id: ctx.projectId }).catch(() => []);
-      const body = promptBody(text, pins, sc.chatId, userEdits, mode);
+      const body = promptBody(text, pins, sc.chatId, userEdits, mode, openDrawingId);
       let live = await connect(true, sc);
       if (!live) throw new Error((here() && st.connectError) || (getSession(sc) || {}).error || "The agent could not start.");
       if (live.authRequired) throw new Error(agentName(sc.harnessId) + " needs you to sign in first.");
