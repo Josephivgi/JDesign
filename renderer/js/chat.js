@@ -355,7 +355,7 @@ export function mountChat(root, ctx) {
     if (busy() || st.sending) {
       // A second message while one waits joins it, so nothing typed is lost.
       const prev = st.queued && (!st.queued.chatId || !st.chat || st.queued.chatId === st.chat.id) ? st.queued.text : "";
-      st.queued = { text: prev ? prev + "\n\n" + text : text, chatId: st.chat ? st.chat.id : "" };
+      st.queued = { text: prev ? prev + "\n\n" + text : text, chatId: st.chat ? st.chat.id : "", steer: { mode: st.modePicked ? st.mode : "", openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "" } };
       if (textArg == null) {
         input.value = "";
         autosize(input);

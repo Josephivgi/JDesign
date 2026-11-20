@@ -180,7 +180,7 @@ export function renderHome(main) {
 
   // Chat history across both studios, newest first. The label at the end of
   // each row says where the chat started: its project or its drawing.
-  const importing = new Set();
+  const importing = (store.importingDrawChats = store.importingDrawChats || new Set());
   const renderChats = async () => {
     if (!inner.querySelector("[data-chats]")) return;
     let video = [];
