@@ -284,13 +284,14 @@ export function mountChat(root, ctx) {
       setSession(scope(), Object.assign({}, snap, { connecting: false }));
       // Signed in from a failed turn's Sign in button: that message goes out now.
       const pending = st.resendAfterAuth && st.chat && st.resendAfterAuth.chatId === st.chat.id ? st.resendAfterAuth.text : "";
+      const pendingSteer = pending ? st.resendAfterAuth.steer : undefined;
       st.resendAfterAuth = null;
       if (pending && snap && !snap.authRequired) {
         if (input.value.trim() === pending) {
           input.value = "";
           autosize(input);
         }
-        void send(pending);
+        void send(pending, undefined, pendingSteer);
       }
     } catch (error) {
       setSession(scope(), { connecting: false });
@@ -357,7 +358,7 @@ export function mountChat(root, ctx) {
       const prev = st.queued && (!st.queued.chatId || !st.chat || st.queued.chatId === st.chat.id) ? st.queued.text : "";
       // The first message's mode and drawing stay with the joined message.
       const prevSteer = prev && st.queued ? st.queued.steer : null;
-      st.queued = { text: prev ? prev + "\n\n" + text : text, chatId: st.chat ? st.chat.id : "", steer: prevSteer || { mode: st.modePicked ? st.mode : "", openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "" } };
+      st.queued = { text: prev ? prev + "\n\n" + text : text, chatId: st.chat ? st.chat.id : "", steer: prevSteer || steer || { mode: st.modePicked ? st.mode : "", openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "" } };
       if (textArg == null) {
         input.value = "";
         autosize(input);
@@ -376,9 +377,11 @@ export function mountChat(root, ctx) {
     // waiting to follow that turn.
     const held = textArg == null && st.queued && (!st.queued.chatId || !st.chat || st.queued.chatId === st.chat.id) ? st.queued : null;
     if (held) {
-      if (held.text !== text) text = st.failure && st.failure.text === text ? text + "\n\n" + held.text : held.text + "\n\n" + text;
+      const failedFirst = Boolean(st.failure && st.failure.text === text);
+      if (held.text !== text) text = failedFirst ? text + "\n\n" + held.text : held.text + "\n\n" + text;
       st.queued = null;
-      if (!steer && held.steer) steer = held.steer;
+      // The message that goes first keeps its own mode and drawing.
+      if (!steer) steer = (failedFirst && st.failure.steer) || held.steer || undefined;
     }
     st.sending = true;
     st.connectError = "";
@@ -1072,7 +1075,7 @@ export function mountChat(root, ctx) {
           if (live && live.authRequired && (live.authMethods || []).length) {
             st.failure = null;
             st.connectError = "";
-            st.resendAfterAuth = { text: again, chatId: sc.chatId };
+            st.resendAfterAuth = { text: again, chatId: sc.chatId, steer: failedSteer };
           } else if (live && live.ready && !live.authRequired) {
             st.failure = null;
             resend();
@@ -1088,7 +1091,7 @@ export function mountChat(root, ctx) {
           autosize(input);
           saveDraft();
         }
-        return void send(CONTINUE);
+        return void send(CONTINUE, undefined, failedSteer);
       }
       if (action === "restart") {
         errAction.disabled = true;
@@ -1098,7 +1101,7 @@ export function mountChat(root, ctx) {
         void Promise.resolve(sc.chatId && sc.harnessId ? api.acpStop(sc) : null).catch(() => {}).then(() => connect(true)).then((live) => {
           if (live && live.ready) resend();
           else {
-            st.failure = Object.assign({ at: Date.now(), text: again }, explainFailure(st.connectError || "The agent could not start."));
+            st.failure = Object.assign({ at: Date.now(), text: again, steer: failedSteer }, explainFailure(st.connectError || "The agent could not start."));
             if (!st.connectError) st.connectError = "The agent could not start.";
           }
           paintAll();
