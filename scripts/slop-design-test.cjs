@@ -147,6 +147,15 @@ const SLOP = [
     },
   },
   {
+    name: "web page copy at video size: tracked caps and a 20px caption",
+    expect: ["text-tiny", "font-default", "tracking"],
+    input: {
+      kind: "card", width: 1920, height: 1080,
+      html: '<div class="k">Pro tip</div><div class="cap">Drag the handles to crop</div>',
+      css: 'body{background:#23424E}.k{position:absolute;left:60px;top:52px;font-size:16px;letter-spacing:.3em;text-transform:uppercase;color:#8FB6C2}.cap{position:absolute;right:60px;bottom:44px;font-size:20px;color:#EAF2F4}',
+    },
+  },
+  {
     name: "live chip: pulsing dot, shimmer loop, neon green on black",
     expect: ["pulsing-dot", "motion-loop", "neon-on-dark"],
     input: {
@@ -311,6 +320,14 @@ const CLEAN = [
       kind: "animation", width: 1920, height: 1080, durationMs: 5000,
       html: '<div class="t"><h1>One command to render</h1><div class="cmd"><span class="typed">jv render intro.html --fps 60</span><span class="caret"></span></div><p>The file lands in your library when it is done.</p></div>',
       css: '.t{position:absolute;inset:0;background:#1F2430;color:#E6E1CF;padding:220px 160px}h1{margin:0 0 70px;font:700 110px/1 Bahnschrift,"Segoe UI",sans-serif}.cmd{display:flex;align-items:center;font:400 62px/1 Consolas,"Cascadia Mono",monospace;color:#FFB454}.typed{clip-path:inset(0 100% 0 0);animation:type 1.6s steps(30) .4s both}@keyframes type{to{clip-path:inset(0 0 0 0)}}.caret{width:26px;height:64px;margin-left:8px;background:#FFB454;animation:blink 1s steps(1) infinite}@keyframes blink{50%{opacity:0}}p{margin:70px 0 0;font:400 46px/1.3 "Segoe UI",sans-serif}',
+    },
+  },
+  {
+    name: "overlay: one quiet caption line at the floor, no headline",
+    input: {
+      kind: "card", width: 1920, height: 1080, durationMs: 3000,
+      html: '<div class="c">Evening freight at the harbour</div>',
+      css: 'body{background:transparent}.c{position:absolute;left:96px;bottom:120px;font:400 34px/1.2 Rockwell,Georgia,serif;color:#F4EFE4}',
     },
   },
   {

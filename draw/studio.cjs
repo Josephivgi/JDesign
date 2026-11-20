@@ -486,6 +486,10 @@ async function runGate(docId, s, chat) {
     if (personTouched.has(docId)) { log(`[${docId}] gate: the person edited the drawing, not putting back (${why})`); return false; }
     store.restore(docId, snap, "agent");
     log(`[${docId}] gate put the old version back: ${why}`);
+    // The reply just above describes the discarded redraw, not the canvas.
+    chat.messages.push({ role: "user", auto: true, text: `JDraw put the earlier version back: ${why}.`, at: Date.now() });
+    store.saveChat(docId, chat);
+    send("agent:event", { docId, type: "chat", chat });
     return true;
   };
   const end = async (r) => {
@@ -493,7 +497,8 @@ async function runGate(docId, s, chat) {
     if (raised && effortBefore) try { await s.setEffort(effortBefore); } catch {}
     // A gate that ends not clean keeps the best state any review saw.
     // Only issues that review also had count, so a late new finding does not undo the fix turns.
-    if (r && r.ok === false && !r.stopped && best && Array.isArray(r.issues) && worseThan(r.issues, best.issues) && putBack(best.snap, `back to the best reviewed state (score ${best.score})`)) {
+    if (r && r.ok === false && !r.stopped && best && Array.isArray(r.issues) && worseThan(r.issues, best.issues) && putBack(best.snap, `the best version the reviewer saw (score ${best.score})`)) {
+      history.push({ stage: "restored", score: best.score, issues: best.issues });
       r = Object.assign({}, r, { issues: best.issues, restoredBest: best.score });
     }
     return r;
@@ -916,7 +921,8 @@ function registerIpc() {
           chat.check = result;
           log(`[${id}] gate ${result.ok === true ? "passed" : result.ok === false ? "did not pass" : "could not run: " + result.error} after ${result.rounds} fix rounds`);
           if (result.ok !== true) {
-            const left = result.stopped ? "Stopped before the slop check finished." : result.ok === null ? `The slop check could not run: ${result.error}` : `The slop check still finds ${result.issues.length} problem${result.issues.length === 1 ? "" : "s"} after ${result.rounds} rounds of fixes:\n` + result.issues.map((i, n) => `${n + 1}. ${i.what}`).join("\n");
+            const restored = result.restoredBest != null ? "The last fix round scored worse, so the drawing is the best version the reviewer saw, not that redraw. " : "";
+            const left = result.stopped ? "Stopped before the slop check finished." : result.ok === null ? `The slop check could not run: ${result.error}` : restored + `The slop check still finds ${result.issues.length} problem${result.issues.length === 1 ? "" : "s"} after ${result.rounds} rounds of fixes:\n` + result.issues.map((i, n) => `${n + 1}. ${i.what}`).join("\n");
             chat.messages.push({ role: "user", auto: true, text: left, at: Date.now() });
           }
         }

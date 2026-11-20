@@ -756,7 +756,7 @@ STANDS = re.compile(r"\b(house|home|cottage|cabin|hut|shed|barn|church|chapel|ca
 FLIES = re.compile(r"\b(birds?|gulls?|kites?|clouds?|flags?|balloons?|planes?|sun|moon|stars?|leaf|leaves|butterfl\w+|bees?|smoke|steam|flying|falling|jumping|floating|hanging|ufo|rocket|drone|fish|ghost|angel|snow|rain|signs?|logo|icon|glow|light|shadows?|reflections?|mist|haze|fog|sky|sea|water|ocean|ground|background|backdrop|far|distant)\b", re.I)
 
 
-def check_layout(shapes, W, H, issues):
+def check_layout(shapes, W, H, issues, limg=None):
     """Whole-picture placement: edge grazes, near touches, floating objects, near-copies."""
     small = min(W, H)
     tol = 0.012 * small  # a sliver the eye reads as "almost touching"
@@ -860,6 +860,41 @@ def check_layout(shapes, W, H, issues):
     def backdrop(s):
         return s.w >= 0.85 * W and s.box[1] <= 0.05 * H
     ground = [s for s in solid if s.w >= 0.6 * W and s.box[1] > 0.05 * H and s.box[3] >= 0.9 * H]
+
+    def floats_over_region(p):
+        """An object cut by the left or right frame is cropped on purpose as
+        often as not (a cliff running off-frame), so it only counts as
+        floating when the paint right under its base reads as one region that
+        clearly is not the object itself: a pier deck over water, a beam over
+        sky. Read from the render; without it the old rule stands."""
+        if limg is None:
+            return False
+        b = p["box"]
+        iw, ih = limg.size
+        sx, sy = iw / W, ih / H
+        iy = int(round(b[3] * sy))
+        if iy < 3 or iy + 6 >= ih:
+            return False
+        px = limg.load()
+        base = [pt for s in p["shapes"] for pt in s.outline if pt[1] >= b[3] - 0.15 * (b[3] - b[1])]
+        xs = sorted(pt[0] for pt in base)
+        if not xs or xs[-1] - xs[0] < 0.02 * W:
+            return False
+        cols = [min(iw - 1, max(0, int(round((xs[0] + (xs[-1] - xs[0]) * f) * sx)))) for f in (0.12, 0.31, 0.5, 0.69, 0.88)]
+        own = [px[c, iy - 2] for c in cols]
+        below = [tuple(sorted(px[c, iy + d][k] for d in (2, 3, 4, 5))[2] for k in range(3)) for c in cols]
+
+        def med(cs, k):
+            return sorted(v[k] for v in cs)[len(cs) // 2]
+
+        def dist(a, e):
+            return math.sqrt(sum((a[k] - e[k]) ** 2 for k in range(3)))
+        mb = tuple(med(below, k) for k in range(3))
+        mo = tuple(med(own, k) for k in range(3))
+        # One quiet region under the whole base, and not the object's paint.
+        quiet = sum(1 for c in below if dist(c, mb) <= 42) >= 0.8 * len(below)
+        return quiet and dist(mb, mo) >= 50
+
     floating = []
     if ground:
         for p in objs:
@@ -868,8 +903,9 @@ def check_layout(shapes, W, H, issues):
             if any(p is x or p is y for x, y, _ in near):
                 continue  # already reported as almost touching
             b = p["box"]
-            if b[3] >= H - tol or b[0] <= tol or b[2] >= W - tol:
-                continue  # stands on, or is cut by, the frame
+            if b[3] >= H - tol:
+                continue  # stands on the frame
+            cut = b[0] <= tol or b[2] >= W - tol
             h = b[3] - b[1]
             base = [pt for s in p["shapes"] for pt in s.outline if pt[1] >= b[3] - 0.15 * h]
             held = False
@@ -881,8 +917,11 @@ def check_layout(shapes, W, H, issues):
                 if any(in_poly(s.outline, x, y + tol) or in_poly(s.outline, x, y) for x, y in base):
                     held = True
                     break
-            if not held:
-                floating.append(p)
+            if held:
+                continue
+            if cut and not floats_over_region(p):
+                continue  # cropped by the frame, or the region under it is unclear
+            floating.append(p)
     if floating:
         issues.append({
             "rule": "floating",
@@ -1191,8 +1230,15 @@ def main():
     stats = {"shapes": len(shapes)}
     check_shapes(shapes, W, H, issues, clean)
     if not clean:
+        limg = None
+        if data.get("png") and Image:
+            try:
+                limg = Image.open(io.BytesIO(base64.b64decode(data["png"]))).convert("RGB")
+                limg.thumbnail((384, 384))
+            except Exception:
+                limg = None
         try:
-            check_layout(shapes, W, H, issues)
+            check_layout(shapes, W, H, issues, limg)
         except Exception as err:
             stats["layout_error"] = str(err)
     try:
