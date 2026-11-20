@@ -309,7 +309,14 @@ function attachMainIpc() {
   // so the smoke has to list real harnesses and open the real marketplace. It
   // starts the MCP bridge but never spawns an agent until a prompt asks.
   const { attachAgentHub } = require("./agent-hub-ipc.cjs");
-  agentHub = attachAgentHub({ dataRoot, appRoot: path.join(__dirname, ".."), log: logCrash });
+  agentHub = attachAgentHub({
+    dataRoot,
+    appRoot: path.join(__dirname, ".."),
+    log: logCrash,
+    // Draw's MCP joins every chat session once the studio is up, so one chat
+    // can draw and edit video.
+    drawMcp: () => (drawStudio && drawStudio.mcpEntry ? drawStudio.mcpEntry() : null),
+  });
 }
 
 let agentHub = null;
@@ -2434,6 +2441,12 @@ ipcMain.handle("user-rules-draft-save", (_event, payload) => {
 });
 
 ipcMain.handle("studio-switch", (_event, to) => ({ studio: switchStudio(to) }));
+// Open a saved drawing in the Draw studio (from the unified Projects page).
+ipcMain.handle("studio-open-drawing", (_event, id) => {
+  switchStudio("draw");
+  if (drawStudio && drawStudio.openDrawing) drawStudio.openDrawing(id);
+  return { studio: "draw" };
+});
 ipcMain.handle("studio-current", () => ({ studio: currentStudio }));
 
 ipcMain.handle("set-chrome", (_event, payload) => {

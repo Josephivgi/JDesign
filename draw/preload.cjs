@@ -6,7 +6,7 @@ async function call(channel, ...args) {
   return res.value;
 }
 
-const EVENTS = ["doc:changed", "agent:event", "agent:tool-done", "render:request", "brush:set", "theme:set"];
+const EVENTS = ["doc:changed", "agent:event", "agent:tool-done", "render:request", "brush:set", "theme:set", "doc:open"];
 
 contextBridge.exposeInMainWorld("jdraw", {
   call,

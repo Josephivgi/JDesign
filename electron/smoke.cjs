@@ -61,7 +61,9 @@ async function runJeditorSmoke(win, opts) {
     // The Draw studio lives in a view inside this window: it must load, the
     // switch must show and hide it, and the rail must offer it.
     report.draw = opts.drawProbe ? await opts.drawProbe().catch((e) => ({ ok: false, error: String((e && e.message) || e) })) : { ok: false, error: "no probe" };
-    report.railSwitch = await js("!!document.querySelector('.rail [data-studio=draw]') && !!document.querySelector('.rail [data-studio=video]')");
+    // One Projects tile now; the Draw studio is reached through it (or Ctrl D).
+    report.railSwitch = await js("!!document.querySelector('.rail [data-studio=video]') && window.cutline.setStudio('draw').then(() => window.cutline.setStudio('video')).then(() => true).catch(() => false)");
+    report.unifiedChat = await js("!!document.querySelector('.unified-chat [data-chat-slot] .composer')");
     report.snapshotError = await js("window.cutline.snapshot().then(() => '').catch((e) => String(e && e.message || e))");
     report.counts = await js("Promise.all([window.cutline.snapshot(), window.cutline.aiProjects()]).then(([s, p]) => ({ library: ((s && s.workspace && s.workspace.library) || []).length, projects: (Array.isArray(p) ? p : (p && p.projects) || []).length }))").catch((e) => ({ error: String(e.message || e) }));
     if (process.env.JEDITOR_SMOKE_IMPORT) {
@@ -363,7 +365,7 @@ async function runJeditorSmoke(win, opts) {
     const t2 = report.turn2;
     const turn2Ok = !report.handoffPick || Boolean(report.handoffPick.ok && t2 && t2.finished && !t2.stuckStop && t2.users >= 2 && !t2.errors.length && !t2.notice);
     const modelOk = !process.env.JEDITOR_SMOKE_MODEL || Boolean(report.homeModel && report.homeModel.pick && report.homeModel.pick.ok && report.modelCheck && report.modelCheck.ok);
-    report.ok = Boolean(report.booted && pagesOk && pickersOk && turnOk && turn2Ok && modelOk && (!report.market || report.market.ok) && report.libraryProtocol && report.libraryProtocol.ok && report.draw && report.draw.ok && report.railSwitch && !report.snapshotError && !errors.length && report.title === "JDesign");
+    report.ok = Boolean(report.booted && pagesOk && pickersOk && turnOk && turn2Ok && modelOk && (!report.market || report.market.ok) && report.libraryProtocol && report.libraryProtocol.ok && report.draw && report.draw.ok && report.railSwitch && report.unifiedChat && !report.snapshotError && !errors.length && report.title === "JDesign");
     process.stdout.write(JSON.stringify(report) + "\n");
     app.exit(report.ok ? 0 : 2);
   } catch (error) {

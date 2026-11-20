@@ -407,13 +407,15 @@ export function mountChat(root, ctx) {
         const project = ctx.getProject() || {};
         const have = new Set((project.assets || []).map((a) => a.id));
         const add = pins.filter((id) => !have.has(id) && store.mediaById(id) && store.library.some((i) => i.id === id));
-        if (add.length) {
+        // The unified Projects chat has no project yet: pins ride along in the
+        // prompt context only, and the agent files them where it makes the work.
+        if (add.length && ctx.projectId) {
           await api.aiProjectAddAssets({ id: ctx.projectId, assetIds: add }).catch(() => {});
           void ctx.onProjectChanged();
         }
       }
       // Hand edits on the timeline strip go out once, with this message.
-      const userEdits = await api.aiProjectTakeUserEdits({ id: ctx.projectId }).catch(() => []);
+      const userEdits = ctx.projectId ? await api.aiProjectTakeUserEdits({ id: ctx.projectId }).catch(() => []) : [];
       const body = promptBody(text, pins, sc.chatId, userEdits);
       let live = await connect(true, sc);
       if (!live) throw new Error((here() && st.connectError) || (getSession(sc) || {}).error || "The agent could not start.");

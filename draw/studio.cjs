@@ -1105,6 +1105,15 @@ async function init(opts) {
   mcp = createMcpServer({
     store,
     viewDrawing,
+    listDrawings: () => store.list(),
+    newDrawing: (opts) => store.create(opts || {}),
+    // open_drawing/new_drawing bring the drawing up in the studio so the
+    // person can watch the agent work and edit the canvas by hand.
+    openDrawing: (id) => {
+      try { if (onSwitch) onSwitch("draw"); } catch {}
+      showView(true);
+      send("doc:open", { id });
+    },
     fillArea: (id, fill) => viewDrawing(id, { kind: "fill", fill }),
     checkDrawing,
     finishDrawing: (id, opts) => finishDrawing(id, opts, true),
@@ -1152,7 +1161,16 @@ async function init(opts) {
   if (SMOKE) {
     setTimeout(() => { log("smoke timed out"); app.exit(2); }, (Number(process.env.JDRAW_SMOKE_TIMEOUT_MS) || 900000) + 60000);
   }
-  return { show: showView, isShown: () => viewShown, webContents: () => view && view.webContents };
+  return {
+    show: showView,
+    isShown: () => viewShown,
+    webContents: () => view && view.webContents,
+    // MCP server entry for a session that is not bound to one drawing: the
+    // agent picks with new_drawing/open_drawing. Unified JV chats inject this.
+    mcpEntry: () => (mcp && mcp.url ? mcp.acpEntry("") : null),
+    drawings: () => store.list(),
+    openDrawing: (id) => { showView(true); send("doc:open", { id }); return true; },
+  };
 }
 
 function shutdown() {

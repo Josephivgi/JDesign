@@ -30,6 +30,8 @@
     const smoke = await jdraw.call("smoke:config").catch(() => null);
     // Video's Settings > Appearance owns the theme and the accent for both studios.
     jdraw.on("theme:set", ({ mode, accent }) => { if (accent) UI.applyAccent(accent); UI.applyTheme(mode); });
+    // The unified Projects chat can open a drawing here (open_drawing MCP tool).
+    jdraw.on("doc:open", ({ id }) => { if (id) void app.openDrawing(id); });
     await app.goHome();
     if (smoke) Smoke.run(app, smoke);
   })();

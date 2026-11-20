@@ -438,6 +438,16 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 [data-home] .launch-setup { margin: 22px auto -8px; }
 .launch-setup strong { color: var(--text); font-weight: 600; }
 .launch-pins { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px; }
+
+/* The unified chat card on Projects: the editor's chat styles already style
+   the parts; the card just needs a bounded height so the thread scrolls. */
+.unified-chat { width: min(840px, 100%); margin: 0 auto; }
+.unified-chat .chat-card {
+  display: flex; flex-direction: column; height: 520px;
+  border: 1px solid var(--line-2); border-radius: var(--r-xl); background: var(--bg-2); overflow: hidden;
+}
+/* A drawing card has no options button, so its meta row uses the full width. */
+.proj.is-drawing .proj-meta { padding-right: 12px; }
 .launch-foot { display: flex; align-items: center; gap: var(--s-2); padding: 8px 10px 10px; }
 /* One row of controls, one height: the icon buttons, the frame, agent and
    model pickers and Create share a baseline and an equal gap. */

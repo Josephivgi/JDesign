@@ -1071,7 +1071,7 @@ function createAcpHost(host, dependencies) {
         const bridge = await checkMcp(session, session.controller.signal);
         const spec = spawnSpec(ids.harnessId, { appRoot: host.appRoot, dataRoot: host.dataRoot });
         session.cwd = workFolder(body, ids);
-        const options = Object.assign({}, ids, { dataRoot: host.dataRoot, appRoot: host.appRoot, profile: profileFor(ids) });
+        const options = Object.assign({}, ids, { dataRoot: host.dataRoot, appRoot: host.appRoot, profile: profileFor(ids), drawMcp: host.drawMcp ? host.drawMcp() : null });
         for (const entry of cutlineMcpServersForAcp(options)) writeCwdMcpConfig(ids.harnessId, session.cwd, entry);
         const client = new Client(Object.assign({}, options, { cwd: session.cwd, onUpdate: (params) => onUpdate(session, params), onRequest: (message) => onAgentRequest(session, message) }));
         session.client = client;
