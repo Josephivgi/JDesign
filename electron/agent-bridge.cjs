@@ -217,6 +217,9 @@ function createAgentBridge(host) {
   let port = 0;
   let token = "";
   let startedAt = "";
+  // Only sessions the app spawned may claim a harness. The key never lands on
+  // disk: it rides the MCP entries and env the ACP host hands its agents.
+  const harnessKey = randomBytes(24).toString("hex");
   function broadcast(event, payload) {
     for (const win of host.windows()) {
       if (!win.isDestroyed()) win.webContents.send("agent-event", { event, payload });
@@ -712,7 +715,7 @@ function createAgentBridge(host) {
   function authorized(req, url) {
     const header = String(req.headers.authorization || "");
     const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
-    const given = bearer || String(req.headers["x-cutline-token"] || "") || url.searchParams.get("token") || "";
+    const given = bearer || String(req.headers["x-cutline-token"] || "");
     return sameToken(given, token);
   }
 
@@ -767,7 +770,12 @@ function createAgentBridge(host) {
     }
     const meta = {
       client: String(req.headers["x-cutline-client"] || ""),
-      harness: String(req.headers["x-cutline-harness"] || ""),
+      // A harness claim only counts when the caller proves the app spawned
+      // it: without the per-start key, a plain config env var cannot upgrade
+      // itself to in-app privileges.
+      harness: sameToken(String(req.headers["x-cutline-harness-key"] || ""), harnessKey)
+        ? String(req.headers["x-cutline-harness"] || "")
+        : "",
       sessionId: sessionHeader,
       // The ACP session's bound project/workspace. The MCP handler fills
       // them into calls the agent left blank so edits land on the open
@@ -896,6 +904,7 @@ function createAgentBridge(host) {
       url,
       port,
       token,
+      harnessKey,
       startedAt,
       dataRoot,
       launcher,

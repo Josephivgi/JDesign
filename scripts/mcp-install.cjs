@@ -194,7 +194,9 @@ function resolveDataRoot(flags) {
   if (flags.dataRoot) return path.resolve(flags.dataRoot);
   const fromEnv = process.env.JEDITOR_DATA_ROOT || process.env.CUTLINE_DATA_ROOT;
   if (fromEnv) return path.resolve(fromEnv);
-  const candidates = ["JEditor", "JV Dev"]
+  // JDesign first: it is this app. The JEditor folders stay so configs made
+  // before the rename keep resolving.
+  const candidates = ["JDesign", "JDesign Dev", "JEditor", "JV Dev"]
     .map((name) => path.join(APPDATA, name, "data"))
     .filter((dir) => fs.existsSync(dir));
   if (!candidates.length) {
@@ -217,8 +219,10 @@ function resolveAppRoot(flags, dataRoot) {
   const bridge = readJson(path.join(dataRoot, "agent-bridge.json"));
   const fromBridge = bridge && typeof bridge.appRoot === "string" ? bridge.appRoot : "";
   if (fromBridge && hasServer(fromBridge)) return fromBridge;
-  const installed = path.join(LOCALAPPDATA, "Programs", "JEditor", "resources", "app");
-  if (hasServer(installed)) return installed;
+  for (const name of ["JDesign", "JEditor"]) {
+    const installed = path.join(LOCALAPPDATA, "Programs", name, "resources", "app");
+    if (hasServer(installed)) return installed;
+  }
   if (hasServer(REPO_ROOT)) return REPO_ROOT;
   throw new Error("Could not find a JV install. Open JV once, or pass --app-root <folder>.");
 }

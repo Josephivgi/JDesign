@@ -6,7 +6,7 @@ const CLIP_MARK = "jdraw-items:";
 const path = require("node:path");
 const fs = require("node:fs");
 const { DrawingStore, titleFor } = require("./lib/store.cjs");
-const { createMcpServer } = require("./lib/mcp-server.cjs");
+const { createMcpServer, mutatingToolNames } = require("./lib/mcp-server.cjs");
 const { CATALOG, detectAgents, AgentSession, REVIEW_BRIEF } = require("./lib/acp.cjs");
 const SlopCheck = require("./lib/slop-check.cjs");
 const Finish = require("./lib/finish.cjs");
@@ -786,8 +786,9 @@ const TOOL_LABELS = {
 };
 
 // Tools that mean a project drawing changed: each one leaves an artifact card
-// in the project chat transcript.
-const ARTIFACT_TOOLS = new Set(["new_drawing", "draw", "draw_svg", "draw_text", "draw_path", "fill_area", "erase_items", "edit_items", "arrange", "import_svg", "place_image", "remove_items", "merge_down", "finish_drawing", "canvas"]);
+// in the project chat transcript. Derived from the mutates flags on the tool
+// defs so the list cannot drift from what the server actually offers.
+const ARTIFACT_TOOLS = mutatingToolNames();
 
 function createView() {
   if (SMOKE) return createSmokeWindow();

@@ -1086,6 +1086,7 @@ function createAcpHost(host, dependencies) {
           JEDITOR_DATA_ROOT: host.dataRoot, CUTLINE_DATA_ROOT: host.dataRoot,
           JEDITOR_APP_ROOT: host.appRoot, CUTLINE_APP_ROOT: host.appRoot,
           JEDITOR_HARNESS: ids.harnessId, CUTLINE_HARNESS: ids.harnessId,
+          JEDITOR_HARNESS_KEY: (host.bridgeInfo() || {}).harnessKey || "", CUTLINE_HARNESS_KEY: (host.bridgeInfo() || {}).harnessKey || "",
           JEDITOR_PROJECT_ID: ids.projectId, CUTLINE_PROJECT_ID: ids.projectId,
           JEDITOR_WORKSPACE_ID: ids.workspaceId, CUTLINE_WORKSPACE_ID: ids.workspaceId,
         }, spec.env);
@@ -1854,7 +1855,7 @@ function createAcpHost(host, dependencies) {
       const spec = spawnSpec(harnessId, { appRoot: host.appRoot, dataRoot: host.dataRoot });
       const cwd = path.join(host.dataRoot, "acp-probe", harnessId.replace(/[^a-z0-9._-]+/gi, "_"));
       fs.mkdirSync(cwd, { recursive: true });
-      const env = Object.assign({ JEDITOR_DATA_ROOT: host.dataRoot, CUTLINE_DATA_ROOT: host.dataRoot, JEDITOR_APP_ROOT: host.appRoot, CUTLINE_APP_ROOT: host.appRoot, JEDITOR_HARNESS: harnessId, CUTLINE_HARNESS: harnessId }, spec.env);
+      const env = Object.assign({ JEDITOR_DATA_ROOT: host.dataRoot, CUTLINE_DATA_ROOT: host.dataRoot, JEDITOR_APP_ROOT: host.appRoot, CUTLINE_APP_ROOT: host.appRoot, JEDITOR_HARNESS: harnessId, CUTLINE_HARNESS: harnessId, JEDITOR_HARNESS_KEY: (host.bridgeInfo() || {}).harnessKey || "", CUTLINE_HARNESS_KEY: (host.bridgeInfo() || {}).harnessKey || "" }, spec.env);
       for (const name of Object.keys(env)) if (/^ORCA_/i.test(name)) delete env[name];
       const client = new Client({ harnessId, dataRoot: host.dataRoot, appRoot: host.appRoot, cwd });
       let stderr = "";

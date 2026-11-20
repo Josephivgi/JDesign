@@ -98,6 +98,18 @@ const askOf = (host, docId) => (host.turnPrompt ? String(host.turnPrompt(docId) 
 const SERVER_NAME = "jdraw";
 const PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
+let drawVersionCache = "";
+function drawVersion() {
+  if (!drawVersionCache) {
+    try {
+      drawVersionCache = JSON.parse(require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "package.json"), "utf8")).version || "0.1.0";
+    } catch {
+      drawVersionCache = "0.1.0";
+    }
+  }
+  return drawVersionCache;
+}
+
 const paint = {
   description: 'A color ("#e5484d", "#00000080" with alpha, "red") or a gradient {"type":"linear","x1":0,"y1":0,"x2":0,"y2":400,"stops":[[0,"#ffd166"],[1,"#ef476f"]]} / {"type":"radial","cx":200,"cy":200,"r":150,"stops":[...]}. Gradient coordinates are canvas pixels.',
   anyOf: [{ type: "string" }, { type: "object" }, { type: "null" }],
@@ -145,6 +157,7 @@ function tools() {
     },
     {
       name: "draw",
+      mutates: true,
       description:
         "Add items to the drawing in one undo step. Put new work on its own named layer (newLayer) so the person can hide or remove it. Coordinates are canvas pixels with 0,0 at the top left. Returns the new ids.",
       inputSchema: {
@@ -161,6 +174,7 @@ function tools() {
     },
     {
       name: "draw_svg",
+      mutates: true,
       description:
         "Paint an SVG onto the drawing as one item. Best for detailed illustration: write full SVG markup with a viewBox, and it is placed at x,y with size w,h. For a painted look, use draw with stroke items instead (get_style stroke-paint). Use draw instead when the person may want to edit the shapes one by one.",
       inputSchema: {
@@ -176,6 +190,7 @@ function tools() {
     },
     {
       name: "edit_items",
+      mutates: true,
       description:
         "Change items by id: colors (fill, stroke, color), size, strokeWidth, opacity, shadow (null removes it), blend, position fields, text, brush. Also move them (dx, dy), scale them around their center, rotate (degrees), restack them (order: front|back|forward|backward), or move them to another layer.",
       inputSchema: {
@@ -192,6 +207,7 @@ function tools() {
     },
     {
       name: "arrange",
+      mutates: true,
       description:
         "Arrange items by id, one undo step. action: duplicate (copies above the originals, offset by dx/dy, returns the new ids), group / ungroup (grouped items select and move together for the person), " +
         "align (how: left|center|right|top|middle|bottom; to: canvas lines them up with the canvas, otherwise with each other), distribute (dir: horizontal|vertical, even gaps, 3+ items), " +
@@ -213,6 +229,7 @@ function tools() {
     },
     {
       name: "fill_area",
+      mutates: true,
       description:
         "Paint-bucket fill: floods the enclosed area under x,y (canvas pixels) with a color or gradient, the way the person's Fill tool does. Use it to color in the person's line art. " +
         "The fill goes under the existing items of the layer so outlines stay on top. tolerance 0..255 (default 48) is how different a color may be and still fill; gap 0..12 (default 0) closes small breaks in outlines so the fill does not leak; " +
@@ -234,11 +251,13 @@ function tools() {
     },
     {
       name: "delete_items",
+      mutates: true,
       description: "Remove items by id.",
       inputSchema: { type: "object", properties: { ids: { type: "array", items: { type: "string" }, minItems: 1 } }, required: ["ids"] },
     },
     {
       name: "recolor",
+      mutates: true,
       description: "Swap one color for another across the drawing or one layer, for every item close to that color (tolerance 0 to 442, default 24). Also changes the background if it matches.",
       inputSchema: {
         type: "object",
@@ -248,6 +267,7 @@ function tools() {
     },
     {
       name: "set_palette",
+      mutates: true,
       description:
         "Change the color palette shown under the canvas, where the person picks colors. mode add (default) appends colors, replace swaps the whole palette. Give a short name for each color when it helps.",
       inputSchema: {
@@ -270,11 +290,13 @@ function tools() {
     },
     {
       name: "canvas",
+      mutates: true,
       description: 'Change the background color ("transparent" for no paper) or the canvas size. anchor center keeps the drawing in the middle when the size changes; the default keeps it at the top left.',
       inputSchema: { type: "object", properties: { background: { type: "string" }, width: { type: "integer" }, height: { type: "integer" }, anchor: { type: "string", enum: ["top-left", "center"] } } },
     },
     {
       name: "layers",
+      mutates: (a) => !a || a.action !== "list",
       description: "Manage layers: list, add, rename, show or hide, lock or unlock, duplicate, set opacity or blend mode, move (index 0 = bottom), merge_down or delete.",
       inputSchema: {
         type: "object",
@@ -306,6 +328,7 @@ function tools() {
     },
     {
       name: "finish_drawing",
+      mutates: true,
       description:
         "The artist finish, run by code: grades every color (real darks and clean lights, gray and muddy colors get a hue, cool shadows and warm lights, textbook full-strength colors toned down), gives every SVG you placed painted edges and a soft gouache mottle inside the fills (text stays sharp), and lays a faint paper grain over the canvas. JDraw runs it on its own when you finish, before the reviewer looks. Call it yourself only to change it, and only when the person asked for that look: edges false when they asked for pixel art, low poly, blueprint or a flat vector look (never because your own drawing came out flat); grain false for clean graphic work; strength 0.5 for a lighter touch, 1.4 for a looser hand. Your choice is kept for this drawing. Do not draw your own grain, wobble or noise on top of it.",
       inputSchema: {
@@ -395,12 +418,20 @@ function createMcpServer(host) {
   // project-bound session last picked with new_drawing/open_drawing.
   const sessionDocs = new Map();
   const PICK_TOOLS = new Set(["list_drawings", "new_drawing", "open_drawing"]);
-  const MUTATING = new Set(["draw", "draw_svg", "draw_text", "draw_path", "fill_area", "erase_items", "edit_items", "arrange", "import_svg", "place_image", "remove_items", "merge_down", "finish_drawing", "undo", "redo"]);
+  // mutates on a tool def is the one source of truth: it drives the
+  // checkpoint before the call, the changed mark for the turn gate and the
+  // artifact card. A stale hardcoded list here is how deletes slipped past
+  // all three.
+  const allDefs = tools().concat(pickToolDefs());
+  const mutatingTool = (name, args) => {
+    const def = allDefs.find((t) => t.name === name);
+    return Boolean(def && (typeof def.mutates === "function" ? def.mutates(args) : def.mutates));
+  };
 
   function pickToolDefs() {
     return [
       { name: "list_drawings", description: "List the drawings in this project (id, name, when updated).", inputSchema: { type: "object", properties: {} } },
-      { name: "new_drawing", description: "Create a blank drawing in this project and start drawing on it. size: like 1280x720; ratio: like 16/9, 1/1, 9/16.", inputSchema: { type: "object", properties: { name: { type: "string" }, size: { type: "string" }, ratio: { type: "string" } } } },
+      { name: "new_drawing", mutates: true, description: "Create a blank drawing in this project and start drawing on it. size: like 1280x720; ratio: like 16/9, 1/1, 9/16.", inputSchema: { type: "object", properties: { name: { type: "string" }, size: { type: "string" }, ratio: { type: "string" } } } },
       { name: "open_drawing", description: "Open one of this project's drawings by id or name and bring it up on stage. Pass id or name.", inputSchema: { type: "object", properties: { id: { type: "string" }, name: { type: "string" } } } },
     ];
   }
@@ -998,20 +1029,26 @@ function createMcpServer(host) {
       return reply({
         protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[1],
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: SERVER_NAME, title: "JDraw", version: "0.1.0" },
+        serverInfo: { name: SERVER_NAME, title: "JDraw", version: drawVersion() },
         instructions: "Tools for the drawing open in JDraw. view_drawing shows it, get_drawing lists items, draw and draw_svg add art, fill_area colors in enclosed areas, edit_items and arrange change it, set_palette adds colors for the person. list_styles and get_style give guides for drawing in a style (watercolor, pixel art, neon and more).",
       });
     }
     if (method === "ping") return reply({});
-    if (method === "tools/list") return reply({ tools: tools().concat(pickToolDefs()) });
+    if (method === "tools/list") return reply({ tools: allDefs.map(({ mutates, ...t }) => t) });
     if (method === "tools/call") {
       const name = params && params.name;
       const args = (params && params.arguments) || {};
       try {
-        if (PICK_TOOLS.has(name)) return reply(toolResult(await pickTool(ctx, name, args)));
+        if (PICK_TOOLS.has(name)) {
+          const out = await pickTool(ctx, name, args);
+          // new_drawing creates a doc: same artifact card and turn tracking
+          // as a doc tool.
+          try { host.onTool && host.onTool(ctx.sess.docId, name, args, null, ctx); } catch {}
+          return reply(toolResult(out));
+        }
         const docId = ctxDoc(ctx);
         if (!docId) return reply({ isError: true, content: [{ type: "text", text: ctx.scopeErr || "No drawing is attached to this session. Call list_drawings then open_drawing, or new_drawing." }] });
-        if (MUTATING.has(name)) try { host.beforeTool && host.beforeTool(ctx, docId, name, args); } catch {}
+        if (mutatingTool(name, args)) try { host.beforeTool && host.beforeTool(ctx, docId, name, args); } catch {}
         const out = await callTool(docId, name, args);
         try { host.onTool && host.onTool(docId, name, args, null, ctx); } catch {}
         return reply(toolResult(out));
@@ -1031,10 +1068,11 @@ function createMcpServer(host) {
       const url = new URL(req.url, "http://127.0.0.1");
       if (url.pathname !== "/mcp") { res.writeHead(404).end(); return; }
       if (req.headers.authorization !== "Bearer " + token) { res.writeHead(401, { "Content-Type": "application/json" }).end('{"error":"unauthorized"}'); return; }
-      if (req.method === "DELETE") { sessions.delete(req.headers["mcp-session-id"]); res.writeHead(200).end(); return; }
+      if (req.method === "DELETE") { const sid = req.headers["mcp-session-id"]; sessions.delete(sid); sessionDocs.delete(String(sid || "")); res.writeHead(200).end(); return; }
       if (req.method !== "POST") { res.writeHead(405, { Allow: "POST, DELETE" }).end(); return; }
       const sessKey = String(req.headers["mcp-session-id"] || "") || "hdr:" + String(req.headers["x-jdraw-drawing"] || "") + ":" + String(req.headers["x-jdraw-project"] || "");
       const sess = sessionDocs.get(sessKey) || { docId: String(req.headers["x-jdraw-drawing"] || url.searchParams.get("drawing") || "") };
+      if (!sessionDocs.has(sessKey) && sessionDocs.size >= 256) sessionDocs.delete(sessionDocs.keys().next().value);
       sessionDocs.set(sessKey, sess);
       const ctx = {
         sess,
@@ -1043,9 +1081,9 @@ function createMcpServer(host) {
       };
       const chunks = [];
       let size = 0;
-      for await (const c of req) { size += c.length; if (size > 20 * 1024 * 1024) { res.writeHead(413).end(); return; } chunks.push(c); }
+      for await (const c of req) { size += c.length; if (size > 20 * 1024 * 1024) { res.writeHead(413, { "Content-Type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "Body over 20 MB. Split the artwork into smaller draw calls or place smaller images." } })); return; } chunks.push(c); }
       let body;
-      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { res.writeHead(400).end(); return; }
+      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } })); return; }
       const batch = Array.isArray(body) ? body : [body];
       const headers = { "Content-Type": "application/json" };
       if (batch.some((m) => m && m.method === "initialize")) {
@@ -1053,7 +1091,13 @@ function createMcpServer(host) {
         sessions.add(sid);
         headers["Mcp-Session-Id"] = sid;
       }
-      const replies = (await Promise.all(batch.map((m) => handleRpc(m || {}, ctx)))).filter(Boolean);
+      // Sequential: pick and use tools in one batch must run in order
+      // (new_drawing then draw), and parallel calls would race on the doc.
+      const replies = [];
+      for (const m of batch) {
+        const r = await handleRpc(m || {}, ctx);
+        if (r) replies.push(r);
+      }
       if (!replies.length) { res.writeHead(202, headers).end(); return; }
       res.writeHead(200, headers).end(JSON.stringify(Array.isArray(body) ? replies : replies[0]));
     } catch (err) {
@@ -1067,6 +1111,11 @@ function createMcpServer(host) {
     url: null,
     tools,
     callTool,
+    // The tool names that change a drawing, from the mutates flags. The
+    // studio derives checkpoint and artifact behavior from this same set.
+    mutatingToolNames() {
+      return new Set(allDefs.filter((t) => t.mutates).map((t) => t.name));
+    },
     // Each person turn starts with a fresh refusal budget per object.
     resetLint(docId) { for (const k of [...lintTries.keys()]) if (k.startsWith(docId + "\n")) lintTries.delete(k); for (const k of [...finalRefused]) if (k.startsWith(docId + "\n")) finalRefused.delete(k); },
     listen() {
@@ -1109,4 +1158,10 @@ function createMcpServer(host) {
   };
 }
 
-module.exports = { createMcpServer, summarize, svgToDataUrl };
+module.exports = { createMcpServer, summarize, svgToDataUrl, mutatingToolNames };
+
+// Same set the server instance reports, for code that needs it before a
+// server exists (the studio's artifact list).
+function mutatingToolNames() {
+  return new Set(tools().concat([{ name: "new_drawing", mutates: true }]).filter((t) => t.mutates).map((t) => t.name));
+}

@@ -55,7 +55,7 @@ function attachAgentHub(options) {
     powerRelease: releaseSystemAwake,
     bridgeInfo: () => {
       const info = bridge.info();
-      return info.running ? { url: info.url, token: info.token } : null;
+      return info.running ? { url: info.url, token: info.token, harnessKey: info.harnessKey } : null;
     },
     // Every project chat session gets the drawing tools bound to its project.
     drawMcp: (ids) => (typeof options.drawMcp === "function" ? options.drawMcp(ids) : null),
