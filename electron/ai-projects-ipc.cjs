@@ -180,6 +180,13 @@ function attachAiProjectsIpc(host) {
     const body = payload || {};
     const found = await projectInActiveWorkspace(body.id);
     const result = projects.deleteProject(dataRoot(), body.id);
+    // A project's drawings go with it; the renderer already named them in the
+    // confirmation the person said yes to.
+    try {
+      if (typeof host.deleteDrawingsForProject === "function") host.deleteDrawingsForProject(body.id);
+    } catch {
+      /* the confirmed project deletion stays authoritative */
+    }
     try {
       const { deleteChatsForProject } = require("../lib/editor-chats");
       deleteChatsForProject(dataRoot(), found.workspace.id, body.id);

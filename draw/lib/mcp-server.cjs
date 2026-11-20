@@ -385,10 +385,76 @@ function svgSize(svg) {
   return { w: w ? Number(w[1]) : 512, h: h ? Number(h[1]) : 512 };
 }
 
-// host: { store, viewDrawing(docId, opts) -> {png base64}, setBrush(docId, brush), context(docId) -> {brush, selection}, onTool(docId, name, args, result) }
+// host: { store, viewDrawing(docId, opts) -> {png base64}, setBrush(docId, brush), context(docId) -> {brush, selection},
+//   listDrawings(projectId), projectOf(docId), newDrawing(opts), openDrawing(docId),
+//   beforeTool(ctx, docId, name, args), onTool(docId, name, args, err, ctx) }
 function createMcpServer(host) {
   const token = crypto.randomBytes(24).toString("hex");
   const sessions = new Set();
+  // MCP session id (or a header fallback) -> { docId }: which drawing a
+  // project-bound session last picked with new_drawing/open_drawing.
+  const sessionDocs = new Map();
+  const PICK_TOOLS = new Set(["list_drawings", "new_drawing", "open_drawing"]);
+  const MUTATING = new Set(["draw", "draw_svg", "draw_text", "draw_path", "fill_area", "erase_items", "edit_items", "arrange", "import_svg", "place_image", "remove_items", "merge_down", "finish_drawing", "undo", "redo"]);
+
+  function pickToolDefs() {
+    return [
+      { name: "list_drawings", description: "List the drawings in this project (id, name, when updated).", inputSchema: { type: "object", properties: {} } },
+      { name: "new_drawing", description: "Create a blank drawing in this project and start drawing on it. size: like 1280x720; ratio: like 16/9, 1/1, 9/16.", inputSchema: { type: "object", properties: { name: { type: "string" }, size: { type: "string" }, ratio: { type: "string" } } } },
+      { name: "open_drawing", description: "Open one of this project's drawings by id or name and bring it up on stage. Pass id or name.", inputSchema: { type: "object", properties: { id: { type: "string" }, name: { type: "string" } } } },
+    ];
+  }
+
+  // The drawings a session may see. A project-bound session only ever lists,
+  // opens or edits drawings inside its own project.
+  function drawingList(projectId) {
+    if (projectId && typeof host.listDrawings === "function") return host.listDrawings(projectId) || [];
+    return host.store.list();
+  }
+
+  function inScope(ctx, docId) {
+    return !ctx.projectId || typeof host.projectOf !== "function" || host.projectOf(docId) === ctx.projectId;
+  }
+
+  function ctxDoc(ctx) {
+    const id = String(ctx.sess.docId || "");
+    if (id && !inScope(ctx, id)) {
+      ctx.scopeErr = "That drawing is not in this project.";
+      return "";
+    }
+    return id;
+  }
+
+  async function pickTool(ctx, name, args) {
+    const a = args || {};
+    const rows = () => drawingList(ctx.projectId);
+    if (name === "list_drawings") {
+      const ds = rows().map((d) => ({ id: d.id, name: d.name, updated: d.updated }));
+      return { json: { drawings: ds, open: ctx.sess.docId || "", next: ds.length ? "open_drawing with an id picks one; new_drawing makes a blank one." : "No drawings yet. new_drawing makes one." } };
+    }
+    if (name === "new_drawing") {
+      if (typeof host.newDrawing !== "function") throw new Error("new_drawing is not available here.");
+      const opts = { name: a.name, projectId: ctx.projectId || undefined };
+      const size = String(a.size || "").match(/(\d+)\s*[x×]\s*(\d+)/i);
+      const ratio = String(a.ratio || "").match(/(\d+(?:\.\d+)?)\s*[/:]\s*(\d+(?:\.\d+)?)/);
+      if (size) { opts.width = +size[1]; opts.height = +size[2]; }
+      else if (ratio) { opts.width = 1600; opts.height = Math.round((1600 * +ratio[2]) / +ratio[1]); }
+      const d = host.newDrawing(opts);
+      ctx.sess.docId = d.id;
+      if (typeof host.openDrawing === "function") try { host.openDrawing(d.id); } catch {}
+      return { json: { id: d.id, name: d.name, next: "Draw on it with draw_svg or draw." } };
+    }
+    if (name === "open_drawing") {
+      const want = String(a.id || a.name || "").trim();
+      if (!want) throw new Error("Pass id or name.");
+      const hit = rows().find((d) => d.id === want) || rows().find((d) => String(d.name).toLowerCase() === want.toLowerCase());
+      if (!hit) throw new Error(ctx.projectId ? "No drawing in this project with that id or name. Call list_drawings." : "No drawing with that id or name. Call list_drawings.");
+      ctx.sess.docId = hit.id;
+      if (typeof host.openDrawing === "function") try { host.openDrawing(hit.id); } catch {}
+      return { json: { id: hit.id, name: hit.name, next: "Draw on it with draw_svg or draw." } };
+    }
+    throw new Error("Unknown tool: " + name);
+  }
 
   async function callTool(docId, name, args) {
     const store = host.store;
@@ -923,7 +989,7 @@ function createMcpServer(host) {
     return { content };
   }
 
-  async function handleRpc(msg, docId) {
+  async function handleRpc(msg, ctx) {
     const { id, method, params } = msg;
     const reply = (result) => ({ jsonrpc: "2.0", id, result });
     const fail = (code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -937,17 +1003,20 @@ function createMcpServer(host) {
       });
     }
     if (method === "ping") return reply({});
-    if (method === "tools/list") return reply({ tools: tools() });
+    if (method === "tools/list") return reply({ tools: tools().concat(pickToolDefs()) });
     if (method === "tools/call") {
       const name = params && params.name;
       const args = (params && params.arguments) || {};
-      if (!docId) return reply({ isError: true, content: [{ type: "text", text: "No drawing is attached to this session." }] });
       try {
+        if (PICK_TOOLS.has(name)) return reply(toolResult(await pickTool(ctx, name, args)));
+        const docId = ctxDoc(ctx);
+        if (!docId) return reply({ isError: true, content: [{ type: "text", text: ctx.scopeErr || "No drawing is attached to this session. Call list_drawings then open_drawing, or new_drawing." }] });
+        if (MUTATING.has(name)) try { host.beforeTool && host.beforeTool(ctx, docId, name, args); } catch {}
         const out = await callTool(docId, name, args);
-        try { host.onTool && host.onTool(docId, name, args, null); } catch {}
+        try { host.onTool && host.onTool(docId, name, args, null, ctx); } catch {}
         return reply(toolResult(out));
       } catch (err) {
-        try { host.onTool && host.onTool(docId, name, args, err); } catch {}
+        try { host.onTool && host.onTool(ctx.sess && ctx.sess.docId, name, args, err, ctx); } catch {}
         return reply({ isError: true, content: [{ type: "text", text: err && err.message ? err.message : String(err) }] });
       }
     }
@@ -964,7 +1033,14 @@ function createMcpServer(host) {
       if (req.headers.authorization !== "Bearer " + token) { res.writeHead(401, { "Content-Type": "application/json" }).end('{"error":"unauthorized"}'); return; }
       if (req.method === "DELETE") { sessions.delete(req.headers["mcp-session-id"]); res.writeHead(200).end(); return; }
       if (req.method !== "POST") { res.writeHead(405, { Allow: "POST, DELETE" }).end(); return; }
-      const docId = String(req.headers["x-jdraw-drawing"] || url.searchParams.get("drawing") || "");
+      const sessKey = String(req.headers["mcp-session-id"] || "") || "hdr:" + String(req.headers["x-jdraw-drawing"] || "") + ":" + String(req.headers["x-jdraw-project"] || "");
+      const sess = sessionDocs.get(sessKey) || { docId: String(req.headers["x-jdraw-drawing"] || url.searchParams.get("drawing") || "") };
+      sessionDocs.set(sessKey, sess);
+      const ctx = {
+        sess,
+        projectId: String(req.headers["x-jdraw-project"] || url.searchParams.get("project") || ""),
+        chatId: String(req.headers["x-jdraw-chat-id"] || ""),
+      };
       const chunks = [];
       let size = 0;
       for await (const c of req) { size += c.length; if (size > 20 * 1024 * 1024) { res.writeHead(413).end(); return; } chunks.push(c); }
@@ -977,7 +1053,7 @@ function createMcpServer(host) {
         sessions.add(sid);
         headers["Mcp-Session-Id"] = sid;
       }
-      const replies = (await Promise.all(batch.map((m) => handleRpc(m || {}, docId)))).filter(Boolean);
+      const replies = (await Promise.all(batch.map((m) => handleRpc(m || {}, ctx)))).filter(Boolean);
       if (!replies.length) { res.writeHead(202, headers).end(); return; }
       res.writeHead(200, headers).end(JSON.stringify(Array.isArray(body) ? replies : replies[0]));
     } catch (err) {
@@ -1012,6 +1088,21 @@ function createMcpServer(host) {
         headers: [
           { name: "Authorization", value: "Bearer " + token },
           { name: "x-jdraw-drawing", value: docId },
+        ],
+      };
+    },
+    // A JV project chat gets the drawing tools bound to its project: the
+    // session can only list, open and edit drawings that belong to it.
+    acpEntryFor(ids) {
+      const o = ids || {};
+      return {
+        type: "http",
+        name: SERVER_NAME,
+        url: this.url,
+        headers: [
+          { name: "Authorization", value: "Bearer " + token },
+          { name: "x-jdraw-project", value: String(o.projectId || "") },
+          { name: "x-jdraw-chat-id", value: String(o.chatId || "") },
         ],
       };
     },

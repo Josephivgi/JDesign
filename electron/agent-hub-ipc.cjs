@@ -57,6 +57,10 @@ function attachAgentHub(options) {
       const info = bridge.info();
       return info.running ? { url: info.url, token: info.token } : null;
     },
+    // Every project chat session gets the drawing tools bound to its project.
+    drawMcp: (ids) => (typeof options.drawMcp === "function" ? options.drawMcp(ids) : null),
+    drawTurnChanged: (projectId) => (typeof options.drawTurnChanged === "function" ? options.drawTurnChanged(projectId) : Promise.resolve([])),
+    drawCheckDrawing: (docId, o) => (typeof options.drawCheckDrawing === "function" ? options.drawCheckDrawing(docId, o) : Promise.resolve(null)),
   });
 
   function register(channel, handler) {

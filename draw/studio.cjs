@@ -342,6 +342,37 @@ function gateEvent(docId, label) {
   send("agent:event", { docId, type: "gate", label });
 }
 
+// The gate's check pass for a JV project chat turn: artist finish (when the
+// look wants it), the pixel checker, then the read-only reviewer running as
+// the same agent kind that drew. runGate's whole fix loop lives in JV's
+// acp-host; this is one round of measure plus review.
+async function checkProjectDrawing(docId, o) {
+  o = o || {};
+  const prompt = String(o.prompt || "");
+  turnPrompts.set(docId, prompt);
+  if (store.getPref("artistFinish", true) !== false && !askedCleanLook(prompt)) {
+    try { finishDrawing(docId); } catch (err) { log(`[${docId}] finish failed: ${err.message}`); }
+  }
+  const checker = await checkDrawing(docId);
+  if (!checker || checker.ok === null) return { ok: null, error: (checker && checker.error) || "The checker could not run." };
+  const checkerIssues = Array.isArray(checker.issues) ? checker.issues : [];
+  const drawer = pseudoDrawer(o.harnessId);
+  const review = drawer ? await reviewDrawing(docId, drawer, o.previous || null, checkerIssues, null) : { clean: checkerIssues.length === 0, issues: [] };
+  if (review && review.error) return { ok: null, error: review.error };
+  const issues = checkerIssues.concat((review && review.issues) || []).map((i) => ({ what: i.what || i.issue || "Issue", where: i.where || "", fix: i.fix || "" }));
+  const row = store.list().find((d) => d.id === docId);
+  return { ok: issues.length === 0, issues, name: (row && row.name) || "Drawing" };
+}
+
+// A JV harness id is not one of Draw's CATALOG ids, so the reviewer runs as
+// the drawer's own kind when it matches and falls back to the first catalog
+// agent installed here.
+function pseudoDrawer(harnessId) {
+  const spec = CATALOG.find((a) => a.id === harnessId) || CATALOG.find((a) => a.id === "claude-code") || CATALOG[0];
+  if (!spec) return null;
+  return { agent: spec, models: null, effort: null };
+}
+
 // Canvas-pixel box of an issue: the reviewer's box [x, y, w, h], else a
 // "where" text like "x 940-1465 y 175-455" or "x 410 y 1040 (300x60)".
 function issueBox(issue) {
@@ -754,6 +785,10 @@ const TOOL_LABELS = {
   finish_drawing: "Gave it the artist finish",
 };
 
+// Tools that mean a project drawing changed: each one leaves an artifact card
+// in the project chat transcript.
+const ARTIFACT_TOOLS = new Set(["new_drawing", "draw", "draw_svg", "draw_text", "draw_path", "fill_area", "erase_items", "edit_items", "arrange", "import_svg", "place_image", "remove_items", "merge_down", "finish_drawing", "canvas"]);
+
 function createView() {
   if (SMOKE) return createSmokeWindow();
   view = new WebContentsView({
@@ -775,7 +810,7 @@ function createView() {
   hostWin.on("unmaximize", layoutView);
   hostWin.on("enter-full-screen", layoutView);
   hostWin.on("leave-full-screen", layoutView);
-  wc.loadFile(path.join(__dirname, "renderer", "index.html"));
+  wc.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { embedded: "1" } });
   wc.setWindowOpenHandler(({ url }) => {
     if (/^https:\/\//.test(url)) shell.openExternal(url);
     return { action: "deny" };
@@ -810,20 +845,122 @@ function createSmokeWindow() {
   wc.on("render-process-gone", (_e, d) => log(`renderer gone: ${d.reason}`));
 }
 
-// The view covers the whole content area of the window while Draw is the
-// studio on show; hidden, it keeps running (an agent can still be drawing).
+// The view is embedded in JV's project editor: the renderer measures its
+// stage area and places the view there (draw-view:place). Hidden, it keeps
+// running (an agent can still be drawing). The rail-wide fallback stays for
+// the hidden smoke path.
 const RAIL_WIDTH = 68;
+let placedRect = null;
+let placedDoc = "";
 function layoutView() {
   if (!view || !hostWin || hostWin.isDestroyed()) return;
+  if (placedRect) { view.setBounds(placedRect); return; }
   const [width, height] = hostWin.getContentSize();
-  // JV's rail (68px) stays visible and clickable at the left edge.
   view.setBounds({ x: RAIL_WIDTH, y: 0, width: Math.max(0, width - RAIL_WIDTH), height });
+}
+
+// JV project editor -> this view's live position and which drawing it shows.
+function placeView(opts) {
+  const o = opts || {};
+  const r = o.rect || null;
+  if (!view || view.webContents.isDestroyed()) return false;
+  if (!r || !(r.width > 20 && r.height > 20)) {
+    placedRect = null;
+    placedDoc = "";
+    view.setVisible(false);
+    viewShown = false;
+    return false;
+  }
+  placedRect = { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+  placedDoc = String(o.drawingId || "");
+  view.setBounds(placedRect);
+  view.setVisible(true);
+  viewShown = true;
+  if (placedDoc) send("doc:open", { id: placedDoc });
+  return true;
+}
+
+// While a JV menu, dialog or palette is open it would sit under the canvas,
+// so the view swaps for a still frame until the overlay closes.
+async function freezeView() {
+  if (!view || !placedRect || !viewShown) return null;
+  try {
+    const img = await view.webContents.capturePage();
+    view.setVisible(false);
+    return img.toDataURL();
+  } catch {
+    return null;
+  }
+}
+function unfreezeView() {
+  if (!view || !placedRect) return false;
+  view.setBounds(placedRect);
+  view.setVisible(true);
+  viewShown = true;
+  return true;
+}
+
+// JV side events the project editor listens for (jdraw:event).
+function notifyApp(kind, payload) {
+  try {
+    if (hostWin && !hostWin.isDestroyed()) hostWin.webContents.send("jdraw:event", Object.assign({ kind }, payload || {}));
+  } catch {}
+}
+
+// Tabs and project cards relist whenever a drawing appears, is renamed or goes.
+function drawingsChanged() {
+  send("drawings:changed", {});
+  notifyApp("draw:list-changed", {});
+}
+
+// Drawings a project chat turn touched: the gate checks them and "undo agent
+// changes" restores them. A doc is snapshotted the first time a turn mutates
+// it; a drawing the turn created is deleted by the undo.
+const projectTurns = new Map(); // projectId -> { changed:Set, created:Set, snaps:Map }
+function projectTurn(projectId) {
+  const pid = String(projectId || "");
+  let t = projectTurns.get(pid);
+  if (!t) { t = { changed: new Set(), created: new Set(), snaps: new Map() }; projectTurns.set(pid, t); }
+  return t;
+}
+function markProjectDoc(projectId, docId) {
+  if (!projectId || !docId) return;
+  const t = projectTurn(projectId);
+  if (!t.snaps.has(docId) && !t.created.has(docId)) {
+    try { t.snaps.set(docId, store.checkpoint(docId)); } catch {}
+  }
+  t.changed.add(docId);
+}
+function turnChangedDocs(projectId) {
+  const t = projectTurns.get(String(projectId || ""));
+  return t ? [...t.changed] : [];
+}
+function canUndoProjectTurn(projectId) {
+  const t = projectTurns.get(String(projectId || ""));
+  return !!(t && (t.snaps.size || t.created.size));
+}
+async function undoProjectTurn(projectId) {
+  const t = projectTurns.get(String(projectId || ""));
+  if (!t) return 0;
+  let n = 0;
+  for (const id of t.created) {
+    try { store.remove(id); n++; } catch {}
+  }
+  for (const [id, snap] of t.snaps) {
+    try { store.restore(id, snap, "undo-ai"); n++; } catch {}
+  }
+  t.changed.clear();
+  t.created.clear();
+  t.snaps.clear();
+  drawingsChanged();
+  return n;
 }
 
 function showView(on) {
   if (SMOKE) return true;
   if (!view || view.webContents.isDestroyed()) return false;
   viewShown = !!on;
+  if (!on) placedRect = null;
   view.setVisible(viewShown);
   layoutView();
   if (viewShown) { try { view.webContents.focus(); } catch {} }
@@ -865,13 +1002,45 @@ function registerIpc() {
   handle("studio:switch", (to) => { onSwitch(to === "draw" ? "draw" : "video"); return true; });
 
   handle("drawings:list", () => store.list());
-  handle("drawings:create", (opts) => store.create(opts));
-  handle("drawings:rename", (id, name) => store.rename(id, name));
-  handle("drawings:duplicate", (id) => store.duplicate(id));
+  handle("drawings:create", (opts) => { const d = store.create(opts); drawingsChanged(); return d; });
+  // The unified Projects flow: JV owns placement of the embedded view.
+  handle("drawings:for-project", (projectId) => store.listByProject(projectId));
+  handle("drawing:new", (opts) => { const d = store.create(opts || {}); drawingsChanged(); return d; });
+  handle("drawing:thumb", async (id) => {
+    const row = store.list().find((d) => d.id === id);
+    if (row && row.thumb) return row.thumb;
+    const shot = await viewDrawing(id, { kind: "full" }).catch(() => null);
+    return shot && shot.png ? "data:image/png;base64," + shot.png : null;
+  });
+  handle("drawing:project-of", (id) => store.projectOf(id));
+  handle("draw:undo-turn", (projectId) => undoProjectTurn(projectId));
+  handle("draw:can-undo", (projectId) => canUndoProjectTurn(projectId));
+  handle("draw:to-video", async (docId) => {
+    if (!hostApi.addToVideoLibrary) throw new Error("The video library is not available.");
+    const shot = await viewDrawing(docId, { kind: "full" });
+    if (!shot || !shot.png) throw new Error("The drawing did not render.");
+    const row = store.list().find((d) => d.id === docId);
+    const safe = String((row && row.name) || "drawing").replace(/[\/:*?"<>|]/g, "_");
+    return hostApi.addToVideoLibrary({ name: safe + ".png", mime: "image/png", buffer: Buffer.from(shot.png, "base64") });
+  });
+  handle("draw-view:place", (opts) => placeView(opts));
+  handle("draw-view:hide", () => {
+    placedRect = null;
+    placedDoc = "";
+    viewShown = false;
+    if (view) view.setVisible(false);
+    return true;
+  });
+  handle("draw-view:freeze", () => freezeView());
+  handle("draw-view:unfreeze", () => unfreezeView());
+  handle("draw-view:state", () => ({ visible: !!(view && viewShown), bounds: placedRect, drawingId: placedDoc }));
+  handle("drawings:rename", (id, name) => { const r = store.rename(id, name); drawingsChanged(); return r; });
+  handle("drawings:duplicate", (id) => { const d = store.duplicate(id); drawingsChanged(); return d; });
   handle("drawings:remove", (id) => {
     for (const [key, s] of [...sessions]) if (s.docId === id) { s.stop(); sessions.delete(key); }
     for (const [key, chat] of [...chats]) if (chat.drawingId === id) chats.delete(key);
     store.remove(id);
+    drawingsChanged();
     return true;
   });
   handle("drawings:open", (id) => {
@@ -1082,12 +1251,12 @@ function registerIpc() {
     // The chat that takes its place (the newest left, or a fresh empty one).
     return openChat(id, chatFor(id).id);
   });
-  // JV's Home list sends the chat to open through here: it reaches the Draw
-  // view, which opens the drawing on that chat.
+  // JV's Chats list sends a legacy Draw chat here: it lands in the project
+  // that owns the drawing, on that drawing's tab.
   handle("jdraw-open-chat", ({ drawingId, chatId }) => {
     store.setActiveChat(drawingId, chatId);
-    send("open:chat", { drawingId, chatId });
-    return true;
+    notifyApp("draw:open-chat", { drawingId, chatId, projectId: store.projectOf(drawingId) });
+    return { projectId: store.projectOf(drawingId) };
   });
   // Kept for callers of the old single-chat wipe: now it keeps the old chat
   // and starts a fresh thread.
@@ -1190,7 +1359,7 @@ async function init(opts) {
   hostWin = opts.window;
   dataDir = opts.dataDir;
   onSwitch = opts.onSwitch || onSwitch;
-  hostApi = { addToVideoLibrary: opts.addToVideoLibrary };
+  hostApi = { addToVideoLibrary: opts.addToVideoLibrary, onArtifact: opts.onArtifact };
   if (opts.getThemeMode) themeHost = { getThemeMode: opts.getThemeMode, setThemeMode: opts.setThemeMode || (() => {}), getAccent: opts.getAccent };
   if (opts.onSmokeExit) onSmokeExit = opts.onSmokeExit;
   fs.mkdirSync(dataDir, { recursive: true });
@@ -1210,17 +1379,47 @@ async function init(opts) {
     lintMode: (id) => (store.getPref("slopGate", true) === false ? "off" : lintModeFor(turnPrompts.get(id) || "")),
     turnPrompt: (id) => turnPrompts.get(id) || "",
     context: (id) => contexts.get(id) || {},
+    // Project-scoped picking tools for JV chat sessions (mcp-server.cjs).
+    listDrawings: (projectId) => (projectId ? store.listByProject(projectId) : store.list()),
+    projectOf: (id) => store.projectOf(id),
+    newDrawing: (opts) => {
+      const d = store.create(opts || {});
+      drawingsChanged();
+      return d;
+    },
+    // open_drawing brings the drawing up as that project's artifact tab, not
+    // a separate studio screen.
+    openDrawing: (id) => {
+      send("doc:open", { id });
+      notifyApp("draw:select", { drawingId: id, projectId: store.projectOf(id) });
+    },
+    beforeTool: (ctx, docId) => {
+      if (ctx && ctx.projectId) markProjectDoc(ctx.projectId, docId);
+    },
     setBrush: (id, brush) => {
       const c = contexts.get(id) || {};
       c.brush = Object.assign({}, c.brush, brush);
       contexts.set(id, c);
       send("brush:set", { docId: id, brush });
     },
-    onTool: (id, name, args, err) => {
+    onTool: (id, name, args, err, ctx) => {
       if (err && /^JDraw left this out \(([^)]*)\)/.test(err.message)) leftOut.set(id, (leftOut.get(id) || []).concat(err.message.match(/^JDraw left this out \(([^)]*)\)/)[1]));
       if (err && /^JDraw (did|will) not place/.test(err.message)) refusedIn.set(id, (refusedIn.get(id) || 0) + 1);
       log(`[${id}] tool ${name}${err ? " failed: " + err.message + " args=" + JSON.stringify(args).slice(0, 300) : ""}`);
       send("agent:tool-done", { docId: id, name, label: TOOL_LABELS[name] || name, error: err ? err.message : null });
+      // A project chat drawing it makes or edits becomes an artifact card in
+      // that chat and a tab on the stage.
+      if (!err && ctx && ctx.projectId && id && ARTIFACT_TOOLS.has(name)) {
+        const t = projectTurn(ctx.projectId);
+        t.changed.add(id);
+        if (name === "new_drawing") t.created.add(id);
+        const row = store.list().find((d) => d.id === id);
+        const info = { drawingId: id, drawingName: (row && row.name) || "Drawing", projectId: ctx.projectId, chatId: ctx.chatId };
+        notifyApp("draw:artifact", info);
+        if (hostApi.onArtifact) {
+          try { hostApi.onArtifact(info); } catch {}
+        }
+      }
     },
   });
   await mcp.listen();
@@ -1246,7 +1445,30 @@ async function init(opts) {
   if (SMOKE) {
     setTimeout(() => { log("smoke timed out"); app.exit(2); }, (Number(process.env.JDRAW_SMOKE_TIMEOUT_MS) || 900000) + 60000);
   }
-  return { show: showView, isShown: () => viewShown, webContents: () => view && view.webContents };
+  return {
+    show: showView,
+    isShown: () => viewShown,
+    webContents: () => view && view.webContents,
+    // { url, token } for lib/acp-harnesses drawMcpForAcp: it builds the http
+    // or stdio entry and stamps the project/chat binding onto it.
+    mcpEntryFor: () => (mcp ? { url: mcp.url, token: mcp.token } : null),
+    // Data for the unified Projects page and migration.
+    looseDrawings: () => store.looseDrawings(),
+    setDrawingProject: (id, projectId) => store.setProject(id, projectId),
+    drawingsForProject: (projectId) => store.listByProject(projectId),
+    deleteDrawingsForProject: (projectId) => {
+      const rows = store.listByProject(projectId);
+      for (const d of rows) store.remove(d.id);
+      if (rows.length) drawingsChanged();
+      return rows.length;
+    },
+    projectOf: (id) => store.projectOf(id),
+    // Gate and undo for project chat turns.
+    turnChangedDocs,
+    canUndoProjectTurn,
+    undoProjectTurn,
+    checkProjectDrawing,
+  };
 }
 
 function shutdown() {

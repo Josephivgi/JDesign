@@ -1071,7 +1071,7 @@ function createAcpHost(host, dependencies) {
         const bridge = await checkMcp(session, session.controller.signal);
         const spec = spawnSpec(ids.harnessId, { appRoot: host.appRoot, dataRoot: host.dataRoot });
         session.cwd = workFolder(body, ids);
-        const options = Object.assign({}, ids, { dataRoot: host.dataRoot, appRoot: host.appRoot, profile: profileFor(ids) });
+        const options = Object.assign({}, ids, { dataRoot: host.dataRoot, appRoot: host.appRoot, profile: profileFor(ids), drawMcp: typeof host.drawMcp === "function" ? host.drawMcp(ids) : null });
         for (const entry of cutlineMcpServersForAcp(options)) writeCwdMcpConfig(ids.harnessId, session.cwd, entry);
         const client = new Client(Object.assign({}, options, { cwd: session.cwd, onUpdate: (params) => onUpdate(session, params), onRequest: (message) => onAgentRequest(session, message) }));
         session.client = client;
@@ -1376,6 +1376,96 @@ function createAcpHost(host, dependencies) {
     }
   }
 
+  // The same gate Draw runs after its own turns, for drawings a project chat
+  // turn touched: artist finish, the pixel checker, then the read-only
+  // reviewer. Its issues go back into this same session until clean or the
+  // rounds run out. Same slopGate pref and JEDITOR_GATE_ROUNDS as the video
+  // gate (JDRAW_GATE_ROUNDS overrides for the drawing gate).
+  async function drawGateAfterTurn(session, turn) {
+    if (typeof host.drawTurnChanged !== "function" || typeof host.drawCheckDrawing !== "function") return null;
+    const projectId = session.projectId || "";
+    if (!projectId) return null;
+    const stopped = () => turn.cancelVersion !== session.cancelVersion || !current(session);
+    const log = (message) => {
+      try {
+        require("../lib/slop/after-turn").logLine(host.dataRoot, { error: "draw gate: " + String(message) });
+      } catch {
+        console.error(message);
+      }
+    };
+    const say = (text, extra) => {
+      push(session, Object.assign({ role: "system", text }, extra || {}));
+      emitTranscript(session);
+    };
+    const send = async (text) => {
+      session.internalError = "";
+      session.internalErrorAt = -1;
+      session.internalErrorLen = 0;
+      let result = null;
+      try {
+        const options = { signal: session.turnController ? session.turnController.signal : undefined };
+        result =
+          typeof session.client.promptWithRecovery === "function"
+            ? await session.client.promptWithRecovery(text, session.sessionId, options)
+            : await session.client.prompt(text, session.sessionId);
+      } catch (error) {
+        if (stopped()) return { stopped: true };
+        settleOrphanTools(session);
+        return { failed: true, why: clean(session, (error && error.message) || String(error)) };
+      }
+      if (stopped() || (result && result.stopReason === "cancelled")) return { stopped: true };
+      settleOrphanTools(session);
+      if (session.internalError && !recoveredFromInternalError(session)) return { failed: true, why: "internal error" };
+      if (result && result.idleStopped) return { failed: true, why: "the agent went quiet" };
+      return { ok: true };
+    };
+    try {
+      let on = true;
+      try {
+        on = JSON.parse(require("fs").readFileSync(require("path").join(host.dataRoot, "jeditor-prefs.json"), "utf8")).slopGate !== false;
+      } catch {}
+      if (!on || process.env.JEDITOR_SLOP_GATE === "0") return null;
+      const rounds = Number(process.env.JDRAW_GATE_ROUNDS || process.env.JEDITOR_GATE_ROUNDS || 2) || 0;
+      if (!rounds) return null;
+      const changed = await host.drawTurnChanged(projectId);
+      const docIds = Array.isArray(changed) ? changed.slice(0, 3) : [];
+      if (!docIds.length) return null;
+      const promptText = session.transcript.filter((row) => row && row.role === "user").map((row) => row.text).slice(-3).join("\n");
+      const previous = new Map();
+      let round = 0;
+      for (;;) {
+        if (stopped()) return { stopped: true };
+        const issues = [];
+        for (const docId of docIds) {
+          const check = await host.drawCheckDrawing(docId, { prompt: promptText, harnessId: session.harnessId, previous: previous.get(docId) || null });
+          if (!check || check.ok === null) { if (check && check.error) log(docId + " check: " + check.error); continue; }
+          if (Array.isArray(check.issues)) previous.set(docId, check.issues);
+          for (const i of check.issues || []) issues.push({ docId, name: check.name || "Drawing", what: i.what, where: i.where, fix: i.fix });
+        }
+        if (!issues.length) {
+          if (round > 0) say("Drawing check: clean.");
+          return { ok: true, rounds: round };
+        }
+        if (round >= rounds) {
+          say("Drawing check still flags " + issues.length + " problem" + (issues.length === 1 ? "" : "s") + ": " + issues.slice(0, 3).map((i) => i.what).join("; "), { kind: "slop-gate" });
+          return { ok: false, rounds: round };
+        }
+        say("Drawing check found " + issues.length + " problem" + (issues.length === 1 ? "" : "s") + ", asking the agent to fix.", { kind: "slop-gate" });
+        const ask = "The drawing check flagged this project drawing. Fix each problem with the jdraw tools (redraw the item, do not hide or delete it), on the drawing id given:\n" + issues.map((i, n) => `${n + 1}. ${i.what}${i.where ? ` (${i.where})` : ""}${i.fix ? ` Fix: ${i.fix}` : ""} [drawing ${i.docId} "${i.name}"]`).join("\n");
+        const reply = await send(ask);
+        round++;
+        if (reply.stopped) return { stopped: true };
+        if (reply.failed) {
+          say((session.agentName || "The agent") + " stopped while fixing what the drawing check found. Send a message to continue.", { kind: "slop-gate" });
+          return { ok: false, failed: true, rounds: round };
+        }
+      }
+    } catch (error) {
+      log("draw gate: " + String((error && error.stack) || error));
+      return { ran: false, failed: true };
+    }
+  }
+
   async function prompt(payload) {
     const body = payload || {};
     const session = sessions.get(key(body));
@@ -1480,6 +1570,7 @@ function createAcpHost(host, dependencies) {
           // finished. The gate never throws; the person's Stop ends it too.
           const gated = !userStopped && !internalText && !idleMin && !slash.raw && !(result && result.stopReason === "cancelled");
           const gate = gated ? await slopGateAfterTurn(session, { since: turnStartedAt, cancelVersion, userRowIndex }) : null;
+          if (gated && !(gate && gate.stopped)) await drawGateAfterTurn(session, { since: turnStartedAt, cancelVersion });
           const gateStopped = Boolean(gate && gate.stopped);
           const ended = idleMin
             ? "Turn stopped: " + (session.agentName || "the agent") + " sent nothing for " + idleMin + " min. Send a message to continue."
@@ -1805,7 +1896,23 @@ function createAcpHost(host, dependencies) {
     return listAcpHarnesses({ appRoot: host.appRoot, dataRoot: host.dataRoot }).map((item) => Object.assign(item, { session: snapshot(Object.assign({}, ids, { harnessId: item.id })) }));
   }
 
-  return { list, models, slashCommands, start, authenticate, prompt, cancel, stop, stopHarness, handoff, stopAll, snapshot, answerPermission };
+  // Draw reports a drawing the agent made or changed mid-turn: it lands in
+  // the chat transcript as an artifact card (renderer/js/chat.js).
+  function recordDrawArtifact(info) {
+    const o = info || {};
+    for (const session of sessions.values()) {
+      if (session.stopped) continue;
+      if (o.chatId && session.chatId !== o.chatId) continue;
+      if (!o.chatId && o.projectId && session.projectId !== o.projectId) continue;
+      // One card per drawing per turn, no matter how many tools touched it.
+      const lastUser = session.transcript.reduce((acc, row, i) => (row && row.role === "user" ? i : acc), -1);
+      if (session.transcript.slice(Math.max(0, lastUser)).some((row) => row && row.role === "artifact" && row.drawingId === String(o.drawingId || ""))) continue;
+      push(session, { role: "artifact", drawingId: String(o.drawingId || ""), drawingName: String(o.drawingName || "Drawing"), projectId: String(o.projectId || session.projectId || "") });
+      emitTranscript(session);
+    }
+  }
+
+  return { list, models, slashCommands, start, authenticate, prompt, cancel, stop, stopHarness, handoff, stopAll, snapshot, answerPermission, recordDrawArtifact };
 }
 
 module.exports = { createAcpHost, mergePersistRows, legacyMessageRows };

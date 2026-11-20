@@ -40,6 +40,11 @@ class DrawingStore {
       // The chat a drawing shows when it opens; one row in chat_threads.
       this.db.exec("ALTER TABLE drawings ADD COLUMN active_chat_id TEXT");
     }
+    if (!this.db.prepare("PRAGMA table_info(drawings)").all().some((c) => c.name === "project_id")) {
+      // The video project a drawing belongs to. Loose drawings from before
+      // the unified Projects page have none; main migrates them.
+      this.db.exec("ALTER TABLE drawings ADD COLUMN project_id TEXT");
+    }
     this.migrateChats();
     this.open = new Map(); // id -> { doc, undo: [], redo: [], dirty, timer }
     this.listeners = new Set();
@@ -72,7 +77,26 @@ class DrawingStore {
 
   // ---- drawings
   list() {
-    return this.db.prepare("SELECT id, name, thumb, created, updated FROM drawings ORDER BY updated DESC").all();
+    return this.db.prepare("SELECT id, name, thumb, created, updated, project_id AS projectId FROM drawings ORDER BY updated DESC").all();
+  }
+
+  // The drawings one project holds, for its artifact tabs and card counts.
+  listByProject(projectId) {
+    return this.db.prepare("SELECT id, name, thumb, created, updated FROM drawings WHERE project_id = ? ORDER BY updated DESC").all(String(projectId || ""));
+  }
+
+  projectOf(id) {
+    const row = this.db.prepare("SELECT project_id FROM drawings WHERE id = ?").get(String(id || ""));
+    return row ? row.project_id || "" : "";
+  }
+
+  setProject(id, projectId) {
+    this.db.prepare("UPDATE drawings SET project_id = ? WHERE id = ?").run(String(projectId || ""), String(id || ""));
+  }
+
+  // Saved before the Projects page existed: no project owns them yet.
+  looseDrawings() {
+    return this.db.prepare("SELECT id, name, thumb, created, updated FROM drawings WHERE project_id IS NULL OR project_id = '' ORDER BY updated DESC").all();
   }
 
   create(opts) {
@@ -81,8 +105,8 @@ class DrawingStore {
     const doc = G.newDoc(o);
     const name = String(o.name || "Untitled drawing").slice(0, 120);
     const now = Date.now();
-    this.db.prepare("INSERT INTO drawings (id, name, doc, thumb, created, updated) VALUES (?, ?, ?, NULL, ?, ?)").run(id, name, JSON.stringify(doc), now, now);
-    return { id, name, created: now, updated: now };
+    this.db.prepare("INSERT INTO drawings (id, name, doc, thumb, created, updated, project_id) VALUES (?, ?, ?, NULL, ?, ?, ?)").run(id, name, JSON.stringify(doc), now, now, String(o.projectId || ""));
+    return { id, name, created: now, updated: now, projectId: String(o.projectId || "") };
   }
 
   rename(id, name) {
