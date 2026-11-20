@@ -27,6 +27,9 @@ export function navigate(page, params = {}) {
 
 // Which studio is on show. Draw runs in a view beside the rail, so the rail stays usable.
 let studioNow = "video";
+// JV pages and dialogs sit under the Draw view while Draw is up: anything
+// opened from the rail brings the Video studio back first.
+const toVideo = () => { if (studioNow === "draw" && api.setStudio) api.setStudio("video"); };
 
 function railMarkup() {
   // Inside a project nothing is highlighted: the editor is not one of the rail pages.
@@ -104,14 +107,17 @@ document.addEventListener("click", (event) => {
   const pnav = event.target.closest("[data-plugin-nav]");
   if (pnav) {
     event.preventDefault();
+    toVideo();
     navigate("plugin", { plugin: pnav.dataset.pluginNav, pageId: pnav.dataset.pluginPageId });
     return;
   }
   if (event.target.closest("[data-palette]")) {
+    toVideo();
     openPalette();
     return;
   }
   if (event.target.closest("[data-help]")) {
+    toVideo();
     showShortcuts();
     return;
   }
@@ -141,6 +147,7 @@ document.addEventListener("keydown", (event) => {
   const mod = event.ctrlKey || event.metaKey;
   if (mod && event.key.toLowerCase() === "k") {
     event.preventDefault();
+    toVideo();
     openPalette();
     return;
   }
@@ -151,16 +158,19 @@ document.addEventListener("keydown", (event) => {
   }
   if (mod && event.key === ",") {
     event.preventDefault();
+    toVideo();
     navigate("settings");
     return;
   }
   if (mod && !event.shiftKey && /^[1-3]$/.test(event.key)) {
     event.preventDefault();
+    toVideo();
     navigate(NAV[Number(event.key) - 1].page);
     return;
   }
   if (mod && event.key.toLowerCase() === "n" && !typing()) {
     event.preventDefault();
+    toVideo();
     navigate("home");
     setTimeout(() => {
       const box = $("[data-launch-input]");
@@ -170,6 +180,7 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "?" && !typing() && !mod) {
     event.preventDefault();
+    toVideo();
     showShortcuts();
   }
 });

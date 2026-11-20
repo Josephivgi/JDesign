@@ -991,6 +991,11 @@ html[data-density="compact"] .cut-track { height: 32px; margin-top: 6px; }
 
 .sys { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: var(--fs-xs); }
 .sys::before, .sys::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+/* The slop gate's turn-stop is a status card (like a settled permission),
+   a step up from the plain divider rows around it. */
+.gate { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-2); color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; }
+.gate > .i { margin-top: 2px; color: var(--text-3); }
+.gate .link-btn { flex: none; margin: -3px -6px -3px 0; }
 .err { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r-lg); background: var(--danger-soft); color: var(--text); font-size: var(--fs-sm); }
 .err .i { color: var(--danger); margin-top: 1px; }
 

@@ -675,7 +675,15 @@ export function mountChat(root, ctx) {
         "</div>"
       );
     }
-    if (item.type === "sys") return '<div class="sys">' + esc(item.text) + "</div>";
+    if (item.type === "sys") {
+      // The slop gate's row: one quiet card saying what the check did, with
+      // the prompt it sent the agent behind the same link a user row uses.
+      if (item.gate) {
+        return '<div class="gate">' + icon("shield", "i-sm") + '<span class="grow">' + esc(item.text) + "</span>" +
+          (item.sent ? '<button class="link-btn" data-sent="' + index + '">What was sent</button>' : "") + "</div>";
+      }
+      return '<div class="sys">' + esc(item.text) + "</div>";
+    }
     return "";
   };
 

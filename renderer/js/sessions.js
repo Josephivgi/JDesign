@@ -205,6 +205,9 @@ export function displayItems(rows, opts = {}) {
     } else if (row.role === "system") {
       const text = String(row.text || "");
       if (row.kind === "handoff") out.push({ type: "sys", text: text || "Chat handed to another agent", key: "h" + index });
+      // The after-turn check stopped the turn: a status row, not a divider.
+      // row.sent is the fix prompt it gave the agent, kept behind a link.
+      else if (row.kind === "slop-gate") out.push({ type: "sys", gate: true, text: text.replace(/^Turn stopped: /, ""), sent: row.sent ? String(row.sent) : "", key: "x" + index });
       else if (/^Turn failed: /.test(text)) out.push({ type: "error", text: text.replace(/^Turn failed: /, ""), key: "e" + index });
       else if (/^Turn stopped\.$/.test(text)) out.push({ type: "sys", text: "Stopped", key: "x" + index });
       else if (/^Turn stopped: /.test(text)) out.push({ type: "sys", text: text.replace(/^Turn stopped: /, ""), key: "x" + index });
