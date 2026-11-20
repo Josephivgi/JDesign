@@ -157,10 +157,48 @@ const SMOKE = process.argv.includes("--smoke");
 // --draw-smoke runs the Draw studio's own hidden smoke (draw/renderer/js/smoke.js).
 const DRAW_SMOKE = process.argv.includes("--draw-smoke");
 
+// A crashed or killed run can leave the Chromium cache folders under the data
+// folder locked or half-moved; the next start then logs "Unable to move the
+// cache: Access is denied" and the GPU cache is never created. Every folder
+// here is a disposable cache, so they are deleted before Chromium opens them.
+// Runs only when this process owns the instance lock, never under a live copy.
+const USER_DATA_CACHE_DIRS = [
+  "Cache",
+  "Code Cache",
+  "GPUCache",
+  "ShaderCache",
+  "DawnGraphiteCache",
+  "DawnWebGPUCache",
+  "GraphiteDawnCache",
+  path.join("Network", "Cache"),
+];
+function clearStaleUserDataCaches() {
+  const root = app.getPath("userData");
+  for (const name of USER_DATA_CACHE_DIRS) {
+    const dir = path.join(root, name);
+    try {
+      fssync.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 150 });
+    } catch {
+      try {
+        // A folder that will not delete still gets out of Chromium's way when
+        // a rename is allowed, so the cache starts clean.
+        const moved = dir + ".stale-" + process.pid;
+        fssync.renameSync(dir, moved);
+        fs.rm(moved, { recursive: true, force: true }).catch(() => {});
+      } catch {
+        /* a locked folder stays for Chromium to retry */
+      }
+    }
+  }
+}
+
 // One JDesign per data folder: both studios share the window, the database
 // owners and the agent bridge. Hidden test runs use their own folder.
-if (!SMOKE && !DRAW_SMOKE && !app.requestSingleInstanceLock()) {
+const ownsInstanceLock = SMOKE || DRAW_SMOKE || app.requestSingleInstanceLock();
+if (!ownsInstanceLock) {
   app.quit();
+} else {
+  clearStaleUserDataCaches();
 }
 let currentStudio = "video";
 let drawStudio = null;
