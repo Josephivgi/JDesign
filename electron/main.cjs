@@ -209,7 +209,7 @@ async function migrateLooseDrawings() {
     }
   }
   try {
-    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send("studio-changed", { studio: currentStudio });
+    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send("studio-changed", { studio: currentStudio, projects: true });
   } catch {}
 }
 

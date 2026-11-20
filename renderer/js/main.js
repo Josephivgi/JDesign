@@ -449,6 +449,7 @@ window.addEventListener("error", (event) => {
 on("navigate", ({ page, params }) => navigate(page, params));
 if (api.onStudioChanged) api.onStudioChanged((message) => {
   if (message && message.library) refreshSnapshot().catch(() => {});
+  if (message && message.projects) refreshProjects().catch(() => {});
 });
 // Drawings live inside projects now: Draw reports selects, new artifacts and
 // list changes on jdraw:event, and the project editor reacts to them.

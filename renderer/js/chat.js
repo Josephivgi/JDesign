@@ -283,8 +283,12 @@ export function mountChat(root, ctx) {
       const snap = await api.acpAuthenticate(Object.assign({}, scope(), { methodId }));
       setSession(scope(), Object.assign({}, snap, { connecting: false }));
       // Signed in from a failed turn's Sign in button: that message goes out now.
-      const pending = st.resendAfterAuth && st.chat && st.resendAfterAuth.chatId === st.chat.id ? st.resendAfterAuth.text : "";
-      const pendingSteer = pending ? st.resendAfterAuth.steer : undefined;
+      let after = st.resendAfterAuth && st.chat && st.resendAfterAuth.chatId === st.chat.id ? st.resendAfterAuth : null;
+      // The agent's own sign in button (shown instead of the failure notice)
+      // finishes the send that failed on sign in.
+      if (!after && st.failure && st.failure.text && st.chat) after = { text: st.failure.text, steer: st.failure.steer };
+      const pending = after ? after.text : "";
+      const pendingSteer = after ? after.steer : undefined;
       st.resendAfterAuth = null;
       if (pending && snap && !snap.authRequired) {
         if (input.value.trim() === pending) {
@@ -357,7 +361,11 @@ export function mountChat(root, ctx) {
       // A second message while one waits joins it, so nothing typed is lost.
       const prev = st.queued && (!st.queued.chatId || !st.chat || st.queued.chatId === st.chat.id) ? st.queued.text : "";
       // The first message's mode and drawing stay with the joined message.
-      const prevSteer = prev && st.queued ? st.queued.steer : null;
+      // Two different picks joined into one message go out as Auto instead of
+      // forcing the first pick on the second ask.
+      const nextSteer = steer || { mode: st.modePicked ? st.mode : "", openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "" };
+      const firstSteer = prev && st.queued ? st.queued.steer : null;
+      const prevSteer = firstSteer && firstSteer.mode !== nextSteer.mode ? { mode: "", openDrawingId: firstSteer.openDrawingId } : firstSteer;
       st.queued = { text: prev ? prev + "\n\n" + text : text, chatId: st.chat ? st.chat.id : "", steer: prevSteer || steer || { mode: st.modePicked ? st.mode : "", openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "" } };
       if (textArg == null) {
         input.value = "";
