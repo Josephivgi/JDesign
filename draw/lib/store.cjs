@@ -49,10 +49,6 @@ class DrawingStore {
       // The project chat a legacy Draw chat was copied into (set once).
       this.db.exec("ALTER TABLE chat_threads ADD COLUMN jv_chat_id TEXT");
     }
-    if (!this.db.prepare("PRAGMA table_info(chat_threads)").all().some((c) => c.name === "jv_synced_at")) {
-      // The copy's own updated time right after the copy was made.
-      this.db.exec("ALTER TABLE chat_threads ADD COLUMN jv_synced_at TEXT");
-    }
     this.migrateChats();
     this.open = new Map(); // id -> { doc, undo: [], redo: [], dirty, timer }
     this.listeners = new Set();
@@ -313,14 +309,14 @@ class DrawingStore {
   }
 
   // Every chat across drawings, for the history lists on both Home pages.
-  setJvChat(chatId, jvChatId, syncedAt) {
-    this.db.prepare("UPDATE chat_threads SET jv_chat_id = ?, jv_synced_at = ? WHERE id = ?").run(String(jvChatId || ""), String(syncedAt || ""), String(chatId || ""));
+  setJvChat(chatId, jvChatId) {
+    this.db.prepare("UPDATE chat_threads SET jv_chat_id = ? WHERE id = ?").run(String(jvChatId || ""), String(chatId || ""));
   }
 
   allChats() {
     return this.db
       .prepare(
-        "SELECT c.id, c.drawing_id AS drawingId, c.title, c.agent, c.updated, json_array_length(c.messages) AS messageCount, c.jv_chat_id AS jvChatId, c.jv_synced_at AS jvSyncedAt, d.name AS drawingName " +
+        "SELECT c.id, c.drawing_id AS drawingId, c.title, c.agent, c.updated, json_array_length(c.messages) AS messageCount, c.jv_chat_id AS jvChatId, d.name AS drawingName " +
           "FROM chat_threads c JOIN drawings d ON d.id = c.drawing_id WHERE EXISTS (SELECT 1 FROM json_each(c.messages) j WHERE json_extract(j.value, '$.role') IN ('user', 'agent') AND COALESCE(json_extract(j.value, '$.auto'), 0) = 0 AND COALESCE(json_extract(j.value, '$.error'), 0) = 0 AND trim(COALESCE(json_extract(j.value, '$.text'), '')) != '') ORDER BY c.updated DESC, c.id DESC",
       )
       .all();

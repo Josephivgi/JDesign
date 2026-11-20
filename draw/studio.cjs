@@ -1224,10 +1224,10 @@ function registerIpc() {
     if (!c || c.drawingId !== drawingId) return [];
     return (c.messages || [])
       .filter((m) => m && (m.role === "user" || m.role === "agent") && !m.auto && !m.error && String(m.text || "").trim())
-      .map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: String(m.text), createdAt: Number.isFinite(m.at) ? new Date(m.at).toISOString() : undefined }));
+      .map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: String(m.text), createdAt: new Date(Number.isFinite(m.at) ? m.at : c.updated).toISOString() }));
   });
-  handle("chats:imported", ({ chatId, jvChatId, syncedAt }) => {
-    store.setJvChat(chatId, jvChatId, syncedAt);
+  handle("chats:imported", ({ chatId, jvChatId }) => {
+    store.setJvChat(chatId, jvChatId);
     return true;
   });
   const openChat = (id, chatId) => {

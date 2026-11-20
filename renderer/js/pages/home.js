@@ -190,23 +190,29 @@ export function renderHome(main) {
     const rows = [];
     const projectName = (id) => ((store.projects || []).find((p) => p.id === id) || {}).name || "A project";
     const agentName = (harnessId) => ((store.harnesses || []).find((h) => h.id === harnessId) || {}).name || "";
-    // A copied chat keeps the Draw chat's date until the agent writes in it
-    // again here (its saved stream is newer than the Draw chat).
+    // A copied chat keeps the Draw chat's date until someone writes in it
+    // again here: only user and agent rows newer than the Draw chat count
+    // (connecting an agent also saves status rows, which do not).
     const drawAt = new Map(draw.filter((d) => d.jvChatId).map((d) => [d.jvChatId, d]));
     const when = (v) => (typeof v === "number" ? v : Date.parse(v) || 0);
-    const tails = new Map();
+    const newest = new Map();
     await Promise.all(video.filter((c) => drawAt.has(c.id)).map(async (c) => {
-      const rec = await api.editorChatGet({ id: c.id, transcript: "tail" }).catch(() => null);
-      tails.set(c.id, (rec && rec.chat && rec.chat.acpTranscriptTailAt) || 0);
+      const rec = await api.editorChatGet({ id: c.id }).catch(() => null);
+      const rows = (rec && rec.chat && Array.isArray(rec.chat.acpTranscript) ? rec.chat.acpTranscript : []);
+      const since = Number(drawAt.get(c.id).updated) || 0;
+      newest.set(c.id, rows.reduce((m, r) => (r && (r.role === "user" || r.role === "agent") && Number(r.at) > since ? Math.max(m, Number(r.at)) : m), 0));
     }));
     const stamp = (c) => {
       const d = drawAt.get(c.id);
       if (!d) return c.updatedAt;
-      return Math.max(Number(d.updated) || 0, tails.get(c.id) || 0);
+      return Math.max(Number(d.updated) || 0, newest.get(c.id) || 0);
     };
     for (const c of video) {
       if (!(c.messageCount > 0) && !c.hasAcp) continue;
-      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(stamp(c))].filter(Boolean).join(" · "), from: projectName(c.projectId), at: stamp(c), ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
+      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(stamp(c))].filter(Boolean).join(" · "), from: projectName(c.projectId), at: stamp(c), ico: "film", open: () => {
+        if (!c.projectId) { toast("That chat belongs to no project, so it cannot be opened", true); return; }
+        emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } });
+      } });
     }
     const haveVideo = new Set(video.map((v) => v.id));
     for (const c of draw) {
@@ -239,8 +245,9 @@ export function renderHome(main) {
                 await api.editorChatSave({ chatId, messages: msgs, light: true });
                 const patch = { title: c.title };
                 if (c.agent && (store.harnesses || []).some((h) => h.id === c.agent)) patch.harnessId = c.agent;
+                else if (c.agent) toast((c.agentName || c.agent) + " is not set up here, so this chat continues with your default agent");
                 await api.editorChatUpdate({ id: chatId, patch, light: true }).catch(() => {});
-                await api.jdrawChatImported({ chatId: c.id, jvChatId: chatId });
+                if (!(await api.jdrawChatImported({ chatId: c.id, jvChatId: chatId }))) throw new Error("Could not link the copy");
               } catch (error) {
                 await api.editorChatDelete({ id: chatId }).catch(() => {});
                 throw error;

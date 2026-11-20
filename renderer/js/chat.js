@@ -397,7 +397,8 @@ export function mountChat(root, ctx) {
     const startChatId = startChat ? startChat.id : "";
     const harnessId = st.harnessId;
     const modelId = st.modelId;
-    const mode = st.mode;
+    // Only a pick the person made is told to the model.
+    const mode = st.modePicked ? st.mode : "";
     const openDrawingId = ctx.openDrawingId ? ctx.openDrawingId() : "";
     const pins = st.pins.slice();
     const stillThere = () => (st.chat ? st.chat.id : "") === startChatId;
@@ -806,7 +807,7 @@ export function mountChat(root, ctx) {
     $("[data-model-slot]").innerHTML = st.harnessId ? modelPickerButton(st.harnessId, st.modelId, session()) : "";
     $("[data-mode-slot]").innerHTML =
       '<button type="button" class="picker" data-mode title="What this ask is about" aria-label="What this ask is about">' +
-      icon(st.mode === "draw" ? "pencil" : "film", "i-sm") + "<span>" + (st.mode === "draw" ? "Draw" : "Video") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
+      icon(st.mode === "draw" ? "pencil" : "film", "i-sm") + "<span>" + (!st.modePicked ? "Auto" : st.mode === "draw" ? "Draw" : "Video") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
     const working = busy();
     const btn = $("[data-send]");
     btn.classList.toggle("is-stop", working);
@@ -1148,6 +1149,7 @@ export function mountChat(root, ctx) {
     if (t.closest("[data-mode]")) {
       // Tells the model what this ask is about: video edits or drawings.
       showMenu(t.closest("[data-mode]"), [
+        { label: "Auto", sub: "Follow what is on stage; tell the model nothing", icon: "sparkles", checked: !st.modePicked, onSelect: () => { st.modePicked = false; st.mode = ctx.openDrawingId && ctx.openDrawingId() ? "draw" : "video"; paintComposer(); } },
         { label: "Video", sub: "Cut, caption and render the video", icon: "film", checked: st.mode === "video", onSelect: () => { st.mode = "video"; st.modePicked = true; paintComposer(); } },
         { label: "Draw", sub: "Make or change this project's drawings", icon: "pencil", checked: st.mode === "draw", onSelect: () => { st.mode = "draw"; st.modePicked = true; paintComposer(); } },
       ], { width: 260, align: "end", above: true });
