@@ -117,6 +117,9 @@ export function mountChat(root, ctx) {
     micMs: 0,
     wasBusy: false,
     saying: -1, // index of the reply being read aloud
+    // What the ask is about: the video or the drawings. Starts on whichever
+    // is on stage; the picker tells the model what to do on the next turn.
+    mode: ctx.openDrawingId && ctx.openDrawingId() ? "draw" : "video",
   };
 
   root.innerHTML =
@@ -136,6 +139,7 @@ export function mountChat(root, ctx) {
     '<button class="icon-btn icon-btn-sm" data-attach title="Attach media">' + icon("paperclip") + "</button>" +
     '<button type="button" class="icon-btn icon-btn-sm" data-slash-open title="Workflows (type /)" aria-label="Workflows">' + icon("slash") + "</button>" +
     '<button type="button" class="icon-btn icon-btn-sm mic-btn" data-mic aria-label="Talk instead of typing"></button>' +
+    '<span data-mode-slot></span>' +
     '<span data-agent-slot></span><span data-model-slot></span>' +
     '<span class="grow"></span>' +
     '<span class="agent-status" data-status></span>' +
@@ -307,6 +311,7 @@ export function mountChat(root, ctx) {
       userEdits,
       drawings: ctx.drawings ? ctx.drawings() : [],
       openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "",
+      mode: st.mode,
     });
 
   // ---------- send / stop ----------
@@ -795,6 +800,9 @@ export function mountChat(root, ctx) {
     $("[data-agent-slot]").innerHTML =
       '<button class="picker" data-agent title="' + esc(h ? "Agent: " + h.name : "Choose agent") + '" aria-label="' + esc(h ? "Agent: " + h.name : "Choose agent") + '">' + agentAvatar(st.harnessId) + '<span class="ellipsis">' + esc(h ? h.name : "Choose agent") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
     $("[data-model-slot]").innerHTML = st.harnessId ? modelPickerButton(st.harnessId, st.modelId, session()) : "";
+    $("[data-mode-slot]").innerHTML =
+      '<button type="button" class="picker" data-mode title="What this ask is about" aria-label="What this ask is about">' +
+      icon(st.mode === "draw" ? "pencil" : "film", "i-sm") + "<span>" + (st.mode === "draw" ? "Draw" : "Video") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
     const working = busy();
     const btn = $("[data-send]");
     btn.classList.toggle("is-stop", working);
@@ -1131,6 +1139,14 @@ export function mountChat(root, ctx) {
     if (sent) {
       const item = lastItems[Number(sent.dataset.sent)];
       if (item) openDialog({ title: "Sent to the agent", wide: true, body: '<pre class="selectable" style="white-space:pre-wrap;font:12px/1.5 var(--mono);color:var(--text-2);margin:0">' + esc(item.sent) + "</pre>" });
+      return;
+    }
+    if (t.closest("[data-mode]")) {
+      // Tells the model what this ask is about: video edits or drawings.
+      showMenu(t.closest("[data-mode]"), [
+        { label: "Video", sub: "Cut, caption and render the video", icon: "film", checked: st.mode === "video", onSelect: () => { st.mode = "video"; paintComposer(); } },
+        { label: "Draw", sub: "Make or change this project's drawings", icon: "pencil", checked: st.mode === "draw", onSelect: () => { st.mode = "draw"; paintComposer(); } },
+      ], { width: 260, align: "end", above: true });
       return;
     }
     if (t.closest("[data-agent]")) {
