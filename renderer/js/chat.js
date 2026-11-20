@@ -338,7 +338,7 @@ export function mountChat(root, ctx) {
       .join("");
   };
 
-  const send = async (textArg, harnessOverride) => {
+  const send = async (textArg, harnessOverride, steer) => {
     let text = String(textArg != null ? textArg : input.value).trim();
     // A bare slash is the start of a command, not a message.
     if (!text || text === "/") return;
@@ -398,8 +398,8 @@ export function mountChat(root, ctx) {
     const harnessId = st.harnessId;
     const modelId = st.modelId;
     // Only a pick the person made is told to the model.
-    const mode = st.modePicked ? st.mode : "";
-    const openDrawingId = ctx.openDrawingId ? ctx.openDrawingId() : "";
+    const mode = steer ? steer.mode : st.modePicked ? st.mode : "";
+    const openDrawingId = steer ? steer.openDrawingId : ctx.openDrawingId ? ctx.openDrawingId() : "";
     const pins = st.pins.slice();
     const stillThere = () => (st.chat ? st.chat.id : "") === startChatId;
     try {
@@ -842,7 +842,7 @@ export function mountChat(root, ctx) {
         // moment after a send): keep waiting instead of dropping the message.
         if (st.queued !== next || busy() || st.sending || st.destroyed) return;
         st.queued = null;
-        void send(next.text);
+        void send(next.text, undefined, next.steer);
       }, 0);
     }
   };
@@ -970,7 +970,7 @@ export function mountChat(root, ctx) {
       const next = st.queued;
       st.queued = null;
       saveDraft();
-      void send(next.text);
+      void send(next.text, undefined, next.steer);
     } else if (event.target.closest("[data-queued-edit]")) {
       // Back into the box; it is no longer waiting.
       unqueueToInput();
@@ -1150,8 +1150,8 @@ export function mountChat(root, ctx) {
       // Tells the model what this ask is about: video edits or drawings.
       showMenu(t.closest("[data-mode]"), [
         { label: "Auto", sub: "Follow what is on stage; tell the model nothing", icon: "sparkles", checked: !st.modePicked, onSelect: () => { st.modePicked = false; st.mode = ctx.openDrawingId && ctx.openDrawingId() ? "draw" : "video"; paintComposer(); } },
-        { label: "Video", sub: "Cut, caption and render the video", icon: "film", checked: st.mode === "video", onSelect: () => { st.mode = "video"; st.modePicked = true; paintComposer(); } },
-        { label: "Draw", sub: "Make or change this project's drawings", icon: "pencil", checked: st.mode === "draw", onSelect: () => { st.mode = "draw"; st.modePicked = true; paintComposer(); } },
+        { label: "Video", sub: "Cut, caption and render the video", icon: "film", checked: st.modePicked && st.mode === "video", onSelect: () => { st.mode = "video"; st.modePicked = true; paintComposer(); } },
+        { label: "Draw", sub: "Make or change this project's drawings", icon: "pencil", checked: st.modePicked && st.mode === "draw", onSelect: () => { st.mode = "draw"; st.modePicked = true; paintComposer(); } },
       ], { width: 260, align: "end", above: true });
       return;
     }

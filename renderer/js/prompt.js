@@ -45,7 +45,7 @@ export function buildPrompt({ text, projectId, project, workspaceId, chatId, sel
       // The project's drawings. The jdraw tools act only on these.
       drawings: arts.map((d) => ({ id: d.id, name: d.name })),
     },
-    viewing: { app: "JV", page: "editor", chatId: chatId || "", openDrawingId: openDrawingId || "", task: mode || "project" },
+    viewing: { app: "JV", page: "editor", chatId: chatId || "", openDrawingId: openDrawingId || "", task: mode || undefined },
   };
   // A project made from a gallery design says so, so the agent changes the
   // design (same preset, new params) instead of rewriting it from scratch.
@@ -91,7 +91,7 @@ export function buildPrompt({ text, projectId, project, workspaceId, chatId, sel
         ? "The user picked Video for this ask: edit the project's video with the jeditor tools. Do not change the drawings. "
         : "") +
     "Read jeditor_get_project with this project id before changing anything, and pass the explicit workspaceId and projectId on every tool call. " +
-    (mode === "draw"
+    (mode === "draw" || (!mode && openDrawing)
       ? ""
       : "When there is no footage, make the video from code with jeditor_render_animation instead of asking for media. " +
         "When the edit is ready, render it with jeditor_render_project so it appears in the project's Finished videos. ") +

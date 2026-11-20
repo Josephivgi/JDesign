@@ -196,11 +196,17 @@ export function renderHome(main) {
     const drawAt = new Map(draw.filter((d) => d.jvChatId).map((d) => [d.jvChatId, d]));
     const when = (v) => (typeof v === "number" ? v : Date.parse(v) || 0);
     const newest = new Map();
+    // The transcript is only read again when the chat changed.
+    const seen = (store.chatNewest = store.chatNewest || new Map());
     await Promise.all(video.filter((c) => drawAt.has(c.id)).map(async (c) => {
+      const since = Number(drawAt.get(c.id).updated) || 0;
+      const key = c.id + "|" + c.updatedAt + "|" + since;
+      if (seen.has(key)) { newest.set(c.id, seen.get(key)); return; }
       const rec = await api.editorChatGet({ id: c.id }).catch(() => null);
       const rows = (rec && rec.chat && Array.isArray(rec.chat.acpTranscript) ? rec.chat.acpTranscript : []);
-      const since = Number(drawAt.get(c.id).updated) || 0;
-      newest.set(c.id, rows.reduce((m, r) => (r && (r.role === "user" || r.role === "agent") && Number(r.at) > since ? Math.max(m, Number(r.at)) : m), 0));
+      const at = rows.reduce((m, r) => (r && (r.role === "user" || r.role === "agent") && Number(r.at) > since ? Math.max(m, Number(r.at)) : m), 0);
+      seen.set(key, at);
+      newest.set(c.id, at);
     }));
     const stamp = (c) => {
       const d = drawAt.get(c.id);
@@ -234,9 +240,10 @@ export function renderHome(main) {
         let chatId = (live && live.jvChatId) || "";
         let failed = false;
         try {
-          if (chatId) { const rec = await api.editorChatGet({ id: chatId }); if (!rec || !rec.chat) chatId = ""; }
+          if (chatId) { const rec = await api.editorChatGet({ id: chatId }); if (!rec || !rec.chat || rec.chat.projectId !== projectId) chatId = ""; }
           if (!chatId) {
-            const msgs = (await api.jdrawChatMessages({ drawingId: c.drawingId, chatId: c.id })) || [];
+            const msgs = await api.jdrawChatMessages({ drawingId: c.drawingId, chatId: c.id });
+            if (!msgs) throw new Error("Could not read the Draw chat");
             // Nothing readable to carry over: open the drawing, keep the row.
             if (msgs.length) {
               const rec = await api.editorChatCreate({ workspaceId: store.workspaceId, page: "ai", projectId, model: "" });
