@@ -190,10 +190,23 @@ export function renderHome(main) {
     const rows = [];
     const projectName = (id) => ((store.projects || []).find((p) => p.id === id) || {}).name || "A project";
     const agentName = (harnessId) => ((store.harnesses || []).find((h) => h.id === harnessId) || {}).name || "";
-    const drawAt = new Map(draw.filter((d) => d.jvChatId).map((d) => [d.jvChatId, d.updated]));
+    // A copied chat keeps the Draw chat's date until the agent writes in it
+    // again here (its saved stream is newer than the Draw chat).
+    const drawAt = new Map(draw.filter((d) => d.jvChatId).map((d) => [d.jvChatId, d]));
+    const when = (v) => (typeof v === "number" ? v : Date.parse(v) || 0);
+    const tails = new Map();
+    await Promise.all(video.filter((c) => drawAt.has(c.id)).map(async (c) => {
+      const rec = await api.editorChatGet({ id: c.id, transcript: "tail" }).catch(() => null);
+      tails.set(c.id, (rec && rec.chat && rec.chat.acpTranscriptTailAt) || 0);
+    }));
+    const stamp = (c) => {
+      const d = drawAt.get(c.id);
+      if (!d) return c.updatedAt;
+      return Math.max(Number(d.updated) || 0, tails.get(c.id) || 0);
+    };
     for (const c of video) {
       if (!(c.messageCount > 0) && !c.hasAcp) continue;
-      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(drawAt.get(c.id) || c.updatedAt)].filter(Boolean).join(" · "), from: projectName(c.projectId), at: drawAt.get(c.id) || c.updatedAt, ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
+      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(stamp(c))].filter(Boolean).join(" · "), from: projectName(c.projectId), at: stamp(c), ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
     }
     const haveVideo = new Set(video.map((v) => v.id));
     for (const c of draw) {
@@ -210,7 +223,10 @@ export function renderHome(main) {
         // The project chat is where chats continue: the Draw conversation
         // is copied into it once (the link is kept with the Draw chat), then
         // reopened from there every time.
-        let chatId = c.jvChatId || "";
+        // The row may be from an earlier render: read the current link.
+        const live = ((await api.jdrawChats().catch(() => [])) || []).find((x) => x.id === c.id);
+        let chatId = (live && live.jvChatId) || "";
+        let failed = false;
         try {
           if (chatId) { const rec = await api.editorChatGet({ id: chatId }); if (!rec || !rec.chat) chatId = ""; }
           if (!chatId) {
@@ -231,13 +247,13 @@ export function renderHome(main) {
               }
             }
           }
-        } catch { chatId = ""; }
+        } catch { chatId = ""; failed = true; }
+        if (failed) toast("Could not open that chat's history", true);
         emit("navigate", { page: "editor", params: { projectId, drawingId: c.drawingId, chatId } });
         } finally { importing.delete(c.id); }
       } });
     }
     // Video rows carry ISO text and Draw rows epoch ms: compare as times.
-    const when = (v) => (typeof v === "number" ? v : Date.parse(v) || 0);
     rows.sort((a, b) => when(b.at) - when(a.at));
     store.chatRows = rows;
     drawChats();

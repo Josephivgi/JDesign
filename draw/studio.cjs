@@ -1224,10 +1224,10 @@ function registerIpc() {
     if (!c || c.drawingId !== drawingId) return [];
     return (c.messages || [])
       .filter((m) => m && (m.role === "user" || m.role === "agent") && !m.auto && !m.error && String(m.text || "").trim())
-      .map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: String(m.text) }));
+      .map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: String(m.text), createdAt: Number.isFinite(m.at) ? new Date(m.at).toISOString() : undefined }));
   });
-  handle("chats:imported", ({ chatId, jvChatId }) => {
-    store.setJvChat(chatId, jvChatId);
+  handle("chats:imported", ({ chatId, jvChatId, syncedAt }) => {
+    store.setJvChat(chatId, jvChatId, syncedAt);
     return true;
   });
   const openChat = (id, chatId) => {
@@ -1267,6 +1267,8 @@ function registerIpc() {
   // JV's Chats list sends a legacy Draw chat here: it lands in the project
   // that owns the drawing, on that drawing's tab.
   handle("jdraw-open-chat", ({ drawingId, chatId }) => {
+    const owner = store.chatById(chatId);
+    if (!owner || owner.drawingId !== drawingId) throw new Error("That chat is not in this drawing.");
     store.setActiveChat(drawingId, chatId);
     notifyApp("draw:open-chat", { drawingId, chatId, projectId: store.projectOf(drawingId) });
     return { projectId: store.projectOf(drawingId) };
