@@ -9,9 +9,8 @@ import { renderEditor, editorBridge } from "./pages/editor.js";
 import { initPlugins, pluginCommands, pluginPages, renderPluginPage } from "./plugins.js";
 
 const NAV = [
-  { page: "home", label: "Home", icon: "home", key: "1" },
-  { page: "library", label: "Library", icon: "library", key: "2" },
-  { page: "agents", label: "Agents", icon: "bot", key: "3" },
+  { page: "library", label: "Library", icon: "library", key: "1" },
+  { page: "agents", label: "Agents", icon: "bot", key: "2" },
 ];
 
 let teardown = null;
@@ -94,7 +93,15 @@ document.addEventListener("click", (event) => {
   const studio = event.target.closest("[data-studio]");
   if (studio) {
     event.preventDefault();
-    if (api.setStudio) api.setStudio(studio.dataset.studio === "draw" ? "draw" : "video");
+    if (studio.dataset.studio === "draw") {
+      if (api.setStudio) api.setStudio("draw");
+    } else if (studioNow === "draw") {
+      if (api.setStudio) api.setStudio("video");
+    } else {
+      // Home has no rail button of its own: the Video Editor tile is the way
+      // back to the launcher, so both are never marked at once.
+      navigate("home");
+    }
     return;
   }
   const nav = event.target.closest("[data-nav]");
@@ -162,10 +169,13 @@ document.addEventListener("keydown", (event) => {
     navigate("settings");
     return;
   }
-  if (mod && !event.shiftKey && /^[1-3]$/.test(event.key)) {
-    event.preventDefault();
-    toVideo();
-    navigate(NAV[Number(event.key) - 1].page);
+  if (mod && !event.shiftKey && /^[1-9]$/.test(event.key)) {
+    const item = NAV[Number(event.key) - 1];
+    if (item) {
+      event.preventDefault();
+      toVideo();
+      navigate(item.page);
+    }
     return;
   }
   if (mod && event.key.toLowerCase() === "n" && !typing()) {
@@ -190,7 +200,7 @@ function showShortcuts() {
     ["Anywhere", [
       ["Ctrl K", "Search projects and commands"],
       ["Ctrl N", "Start a new video"],
-      ["Ctrl 1 / 2 / 3", "Home, Library, Agents"],
+      ["Ctrl 1 / 2", "Library, Agents"],
       ["Ctrl ,", "Settings"],
       ["?", "This list"],
     ]],
@@ -218,9 +228,9 @@ function openPalette() {
   const commands = [
     { label: "Start a new video", icon: "plus", kbd: "Ctrl N", run: () => { navigate("home"); setTimeout(() => { const b = $("[data-launch-input]"); if (b) b.focus(); }, 0); } },
     { label: "Open the Draw studio", icon: "pencil", kbd: "Ctrl D", run: () => api.setStudio && api.setStudio("draw") },
-    { label: "Home", icon: "home", kbd: "Ctrl 1", run: () => navigate("home") },
-    { label: "Library", icon: "library", kbd: "Ctrl 2", run: () => navigate("library") },
-    { label: "Agents", icon: "bot", kbd: "Ctrl 3", run: () => navigate("agents") },
+    { label: "Home", icon: "home", run: () => navigate("home") },
+    { label: "Library", icon: "library", kbd: "Ctrl 1", run: () => navigate("library") },
+    { label: "Agents", icon: "bot", kbd: "Ctrl 2", run: () => navigate("agents") },
     { label: "Settings", icon: "settings", kbd: "Ctrl ,", run: () => navigate("settings") },
     { label: "Appearance settings", icon: "palette", run: () => navigate("settings", { section: "appearance" }) },
     { label: "Instructions and rules", icon: "book", run: () => navigate("settings", { section: "instructions" }) },

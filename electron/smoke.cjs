@@ -77,7 +77,8 @@ async function runJeditorSmoke(win, opts) {
     report.harnesses = await js("window.cutline.acpHarnesses().then((l) => l.map((h) => h.id + (h.available ? '' : '(missing)')))");
 
     const visit = async (page, ready, extra) => {
-      await js("document.querySelector('[data-nav=\"" + page + "\"]').click()");
+      // Home has no rail button: the Video Editor studio tile opens it.
+      await js(page === "home" ? "window.__jeditor.navigate('home')" : "document.querySelector('[data-nav=\"" + page + "\"]').click()");
       const ok = await waitFor(ready);
       await sleep(500);
       report.pages[page + (extra || "")] = ok;
@@ -161,7 +162,7 @@ async function runJeditorSmoke(win, opts) {
     }
 
     // A project, the editor, and the chat.
-    await js("document.querySelector('[data-nav=\"home\"]').click()");
+    await js("window.__jeditor.navigate('home')");
     await waitFor("[data-launch]");
     const prompt = process.env.JEDITOR_SMOKE_PROMPT || "";
     const agent = process.env.JEDITOR_SMOKE_AGENT || "";
