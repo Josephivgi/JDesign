@@ -80,6 +80,10 @@ export function renderEditor(main, projectId, opts) {
     muted: false,
     volume: 1,
     rate: 1,
+    // The stage switches between the video and one tab per drawing.
+    tab: "video",
+    drawings: [],
+    canUndoDraw: false,
     destroyed: false,
   };
   let chat = null;
@@ -120,10 +124,13 @@ export function renderEditor(main, projectId, opts) {
     '<div class="rail-drop" data-rail-drop>Drop files to add them</div>' +
     "</aside>" +
     '<section class="stage-col">' +
+    '<div class="art-tabs" data-art-tabs></div>' +
     '<div class="stage-wrap" data-stage-wrap>' +
     '<div class="seg stage-tabs" data-tabs><button data-mode="source" title="Your original clip">Original</button><button data-mode="output" title="The video the agent made">Finished video</button></div>' +
     '<div class="stage-actions"><button class="btn btn-sm hidden" data-previous title="Go back to the clip from before the last change">' + icon("undo", "i-sm") + "<span>Previous version</span></button></div>" +
     '<div class="stage" data-stage></div>' +
+    // While a menu or dialog is up, the live draw view swaps for this still.
+    '<div class="draw-freeze hidden" data-freeze></div>' +
     "</div>" +
     '<div class="transport" data-transport></div>' +
     '<div class="cutstrip hidden" data-cut></div>' +
@@ -135,6 +142,114 @@ export function renderEditor(main, projectId, opts) {
 
   const $ = (sel) => main.querySelector(sel);
   const bench = $("[data-bench]");
+
+  // ---------- artifact tabs: Video plus one tab per drawing ----------
+  const hasVideoContent = () => !!(st.project && ((st.project.assets || []).length || projectRenders(st.project).length));
+  const loadDrawings = async () => {
+    st.drawings = (await api.projectDrawings(projectId).catch(() => [])) || [];
+    st.canUndoDraw = await api.jdrawCanUndoTurn(projectId).catch(() => false);
+  };
+  const paintArtTabs = () => {
+    const bar = $("[data-art-tabs]");
+    if (!bar) return;
+    const tabs = [];
+    if (hasVideoContent()) tabs.push('<button class="art-tab' + (st.tab === "video" ? " is-on" : "") + '" data-art="video" title="The project video">' + icon("film", "i-sm") + "<span>Video</span></button>");
+    for (const d of st.drawings) tabs.push('<button class="art-tab' + (st.tab === d.id ? " is-on" : "") + '" data-art="' + esc(d.id) + '" title="' + esc(d.name) + '">' + icon("pencil", "i-sm") + '<span class="ellipsis">' + esc(d.name) + "</span></button>");
+    tabs.push('<button class="art-tab" data-art-new title="New drawing (Ctrl D)">' + icon("plus", "i-sm") + "<span>New drawing</span></button>");
+    if (st.tab !== "video") {
+      tabs.push('<span class="grow"></span>');
+      tabs.push('<button class="btn btn-sm" data-use-video title="Add this drawing to the project footage">' + icon("film", "i-sm") + "<span>Use in video</span></button>");
+      if (st.canUndoDraw) tabs.push('<button class="btn btn-sm" data-undo-draw title="Undo the changes the agent made to project drawings">' + icon("undo", "i-sm") + "<span>Undo agent changes</span></button>");
+    }
+    bar.innerHTML = tabs.join("");
+  };
+
+  // The Draw WebContentsView sits above the page at this rect. A JV dialog or
+  // menu would land under it, so the view swaps for a captured still then.
+  let placeQueued = false;
+  let frozen = false;
+  const hideDrawView = () => { api.jdrawViewHide().catch(() => {}); };
+  const schedulePlace = () => {
+    if (placeQueued || st.destroyed || frozen) return;
+    placeQueued = true;
+    requestAnimationFrame(() => {
+      placeQueued = false;
+      if (st.destroyed || st.tab === "video" || frozen) return;
+      const wrap = $("[data-stage-wrap]");
+      if (!wrap) return;
+      const r = wrap.getBoundingClientRect();
+      api.jdrawViewPlace({ rect: { x: r.x, y: r.y, width: r.width, height: r.height }, drawingId: st.tab }).catch(() => {});
+    });
+  };
+  const setTab = (id) => {
+    st.tab = id === "video" || st.drawings.some((d) => d.id === id) ? id : "video";
+    bench.classList.toggle("is-draw", st.tab !== "video");
+    paintArtTabs();
+    if (st.tab === "video") hideDrawView();
+    else schedulePlace();
+  };
+  const newDrawing = async () => {
+    const d = await api.jdrawDrawingCreate({ projectId, name: "Drawing " + (st.drawings.length + 1) }).catch(() => null);
+    if (!d || !d.id) return;
+    await loadDrawings();
+    setTab(d.id);
+  };
+  const useInVideo = async () => {
+    const id = st.tab === "video" ? "" : st.tab;
+    if (!id) return;
+    const r = await api.jdrawUseInVideo(id).catch((error) => { toast((error && error.message) || "Could not add it", true); return null; });
+    if (!r || !r.added || !r.id) { if (r && r.reason) toast("Already in the library"); return; }
+    await api.aiProjectAddAssets({ id: projectId, assetIds: [r.id] });
+    toast("Added to the project footage");
+    await load();
+    paintAll();
+    paintArtTabs();
+  };
+  const undoDraw = async () => {
+    const n = await api.jdrawUndoTurn(projectId).catch(() => 0);
+    toast(n ? "Undid the agent's drawing changes" : "Nothing to undo");
+    st.canUndoDraw = false;
+    await loadDrawings();
+    paintArtTabs();
+  };
+  const syncOverlay = async () => {
+    const want = st.tab !== "video" && !!document.querySelector(".dialog, .menu");
+    if (want === frozen) return;
+    frozen = want;
+    const el = $("[data-freeze]");
+    if (frozen) {
+      const url = await api.jdrawViewFreeze().catch(() => null);
+      if (el && url && frozen) {
+        el.style.backgroundImage = 'url("' + url + '")';
+        el.classList.remove("hidden");
+      }
+    } else {
+      if (el) el.classList.add("hidden");
+      await api.jdrawViewUnfreeze().catch(() => {});
+      schedulePlace();
+    }
+  };
+  const overlayWatch = new MutationObserver(() => { if (st.tab !== "video") void syncOverlay(); });
+  overlayWatch.observe(document.body, { childList: true, subtree: true });
+
+  main.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-art]");
+    if (tab) {
+      setTab(tab.dataset.art);
+      return;
+    }
+    if (event.target.closest("[data-art-new]")) {
+      void newDrawing();
+      return;
+    }
+    if (event.target.closest("[data-use-video]")) {
+      void useInVideo();
+      return;
+    }
+    if (event.target.closest("[data-undo-draw]")) {
+      void undoDraw();
+    }
+  });
   bench.style.setProperty("--chat-w", (Number(store.prefs.chatWidth) || 420) + "px");
 
   // ---------- data ----------
@@ -930,7 +1045,10 @@ export function renderEditor(main, projectId, opts) {
   // Fit in the observer callback itself: it already runs once per layout,
   // and a frame callback can be held back (hidden or occluded windows).
   // The stage cannot resize the wrap it is measured from (min-width: 0).
-  const ro = new ResizeObserver(() => fitStage());
+  const ro = new ResizeObserver(() => {
+    fitStage();
+    if (st.tab !== "video") schedulePlace();
+  });
   ro.observe($("[data-stage-wrap]"));
 
   // ---------- live updates ----------
@@ -938,6 +1056,17 @@ export function renderEditor(main, projectId, opts) {
   const paintPluginSlot = () => paintProjectButtons($("[data-plugin-slot]"), () => st.project);
   const offs = [
     on("plugin-buttons", paintPluginSlot),
+    // Ctrl D or the palette: a new drawing in this project, straight to its tab.
+    on("new-drawing", () => { if (!st.destroyed) void newDrawing(); }),
+    on("draw-event", (msg) => {
+      if (st.destroyed || !msg) return;
+      // open_drawing from an agent brings its tab up in this project.
+      if (msg.kind === "draw:select" && msg.drawingId && (!msg.projectId || msg.projectId === projectId)) {
+        void loadDrawings().then(() => { if (st.drawings.some((d) => d.id === msg.drawingId)) setTab(msg.drawingId); });
+      } else if (msg.kind === "draw:artifact" || msg.kind === "draw:list-changed") {
+        void loadDrawings().then(() => paintArtTabs());
+      }
+    }),
     on("workspace-changed", async (info) => {
       if (st.destroyed) return;
       const before = st.project && JSON.stringify([st.project.state && st.project.state.renders, st.project.assets]);
@@ -992,6 +1121,11 @@ export function renderEditor(main, projectId, opts) {
     if (st.destroyed) return;
     paintAll();
     paintPluginSlot();
+    await loadDrawings();
+    // A history row or the palette can land straight on a drawing's tab.
+    if (opts && opts.drawingId && st.drawings.some((d) => d.id === opts.drawingId)) setTab(opts.drawingId);
+    else if (!hasVideoContent() && st.drawings.length) setTab(st.drawings[0].id);
+    else setTab("video");
     emit("project-open", st.project);
     cut = mountCutStrip($("[data-cut]"), {
       projectId,
@@ -1012,9 +1146,16 @@ export function renderEditor(main, projectId, opts) {
       chatId: (opts && opts.chatId) || "",
       getProject: () => st.project,
       selectedAssetId: () => (selectedAsset() || {}).id || "",
+      // The prompt names what is on stage: the video or the open drawing.
+      drawings: () => st.drawings || [],
+      openDrawingId: () => (st.tab === "video" ? "" : st.tab),
+      // An artifact card in the transcript opens its drawing's tab.
+      onOpenDrawing: (drawingId) => setTab(drawingId),
       onProjectChanged: async () => {
         await load();
+        await loadDrawings();
         paintAll();
+        paintArtTabs();
       },
     });
   })();
@@ -1023,6 +1164,8 @@ export function renderEditor(main, projectId, opts) {
     st.destroyed = true;
     live = null;
     ro.disconnect();
+    overlayWatch.disconnect();
+    api.jdrawViewHide().catch(() => {});
     document.removeEventListener("keydown", onKey);
     offs.forEach((off) => off());
     if (player) player.destroy();

@@ -19,10 +19,12 @@ function staleRenders(state) {
   return Object.keys(state.renders || {}).filter((clipId) => sigs[clipId] != null && sigs[clipId] !== editSig(state, clipId) && editSig(state, clipId) !== JSON.stringify([null, [], []]));
 }
 
-export function buildPrompt({ text, projectId, project, workspaceId, chatId, selectedAssetId, pinned, mediaById, userEdits }) {
+export function buildPrompt({ text, projectId, project, workspaceId, chatId, selectedAssetId, pinned, mediaById, userEdits, drawings, openDrawingId }) {
   const proj = project || {};
   const lookup = typeof mediaById === "function" ? mediaById : () => null;
   const pins = (pinned || []).filter(Boolean);
+  const arts = (Array.isArray(drawings) ? drawings : []).filter(Boolean);
+  const openDrawing = arts.find((d) => d.id === openDrawingId) || null;
   const context = {
     activeProject: { id: projectId, name: proj.name || "", aspectRatio: proj.aspectRatio || "" },
     workspaceId,
@@ -40,8 +42,10 @@ export function buildPrompt({ text, projectId, project, workspaceId, chatId, sel
       renders: (proj.state && proj.state.renders) || {},
       // Clips whose finished video was made before their latest edits.
       staleRenders: staleRenders(proj.state || {}),
+      // The project's drawings. The jdraw tools act only on these.
+      drawings: arts.map((d) => ({ id: d.id, name: d.name })),
     },
-    viewing: { app: "JV", page: "editor", chatId: chatId || "" },
+    viewing: { app: "JV", page: "editor", chatId: chatId || "", openDrawingId: openDrawingId || "" },
   };
   // A project made from a gallery design says so, so the agent changes the
   // design (same preset, new params) instead of rewriting it from scratch.
@@ -78,8 +82,9 @@ export function buildPrompt({ text, projectId, project, workspaceId, chatId, sel
     : "";
   return (
     text +
-    "\n\nYou are working inside JV, an AI video editor. JV already connected its tools to this session: use the jeditor-app MCP server for this edit and the jeditor-cards MCP server (cards_* tools) for edit cards. " +
-    "The user is viewing project " + projectId + (proj.name ? " (" + proj.name + ")" : "") + " in workspace " + workspaceId + "; edit only that project. " +
+    "\n\nYou are working inside JDesign. A project holds one video and any number of drawings. The video tools are the jeditor-app MCP server and the jeditor-cards MCP server (cards_* tools) for edit cards; the drawing tools are the jdraw MCP server: list_drawings, new_drawing and open_drawing act on this project only. " +
+    "The user is viewing project " + projectId + (proj.name ? " (" + proj.name + ")" : "") + " in workspace " + workspaceId + "; edit only that project and its drawings. " +
+    (openDrawing ? "The drawing open on stage is " + openDrawing.name + " (" + openDrawing.id + "). " : "") +
     "Read jeditor_get_project with this project id before changing anything, and pass the explicit workspaceId and projectId on every tool call. " +
     "When there is no footage, make the video from code with jeditor_render_animation instead of asking for media. " +
     "When the edit is ready, render it with jeditor_render_project so it appears in the project's Finished videos. " +

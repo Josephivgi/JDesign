@@ -74,8 +74,10 @@
       }
       const view = await pref("view", null);
       if (view) { Object.assign(this.cv.grid, view.grid || {}); this.cv.rulers = !!view.rulers; }
-      this.setPanelWidth(await pref("panelWidth", 440));
-      this.setPanel(await pref("panelOpen", true));
+      if (!this.embedded) {
+        this.setPanelWidth(await pref("panelWidth", 440));
+        this.setPanel(await pref("panelOpen", true));
+      }
       this.setLayersOpen(await pref("layersOpen", true));
       this.layers.setCollapsed(await pref("layersCollapsed", false));
       this.cv.fit();
@@ -84,7 +86,7 @@
       this.renderDock();
       this.layers.update();
       this.renderTop();
-      await this.assistant.load(data.chat, data.busy, data.canUndoTurn, data.chats);
+      if (this.assistant.load) await this.assistant.load(data.chat, data.busy, data.canUndoTurn, data.chats);
       if (data.busy) this.setBusy(true, "Assistant");
       this.pushContext();
       this.subscribe();
@@ -108,9 +110,10 @@
 
     // ---------- layout
     build() {
+      this.embedded = !!(this.app && this.app.embedded);
       this.root.innerHTML = "";
       const top = el(`<header class="topbar drag">
-        <button type="button" class="icon-btn back" title="All drawings" aria-label="All drawings">${icon("back")}</button>
+        ${this.embedded ? "" : `<button type="button" class="icon-btn back" title="All drawings" aria-label="All drawings">${icon("back")}</button>`}
         <input class="name-input" aria-label="Drawing name" spellcheck="false">
         <span class="divider"></span>
         <button type="button" class="icon-btn undo" title="Undo (Ctrl+Z)" aria-label="Undo">${icon("undo")}</button>
@@ -125,7 +128,7 @@
         <button type="button" class="icon-btn canvas-btn" title="Canvas size and paper" aria-label="Canvas size and paper">${icon("canvas")}</button>
         <button type="button" class="btn export">${icon("download")}Export</button>
         <button type="button" class="icon-btn layers-toggle" title="Layers" aria-label="Show layers">${icon("layers")}</button>
-        <button type="button" class="icon-btn panel-toggle" title="Assistant" aria-label="Show assistant">${icon("sparkles")}</button>
+        ${this.embedded ? "" : `<button type="button" class="icon-btn panel-toggle" title="Assistant" aria-label="Show assistant">${icon("sparkles")}</button>`}
       </header>`);
       this.root.appendChild(top);
       const editor = el(`<div class="editor">
@@ -133,11 +136,11 @@
           <nav class="rail" aria-label="Tools"></nav>
           <div class="dock" aria-label="Paint"></div>
         </section>
-        <aside class="panel" aria-label="Assistant">
+        ${this.embedded ? "" : `<aside class="panel" aria-label="Assistant">
           <div class="panel-resize" title="Drag to resize" aria-hidden="true"></div>
           <div class="panel-head">${icon("sparkles")}<span>Assistant</span><span style="flex:1"></span><button type="button" class="icon-btn close-panel" title="Hide assistant" aria-label="Hide assistant">${icon("x")}</button></div>
           <div class="panel-body assistant-body"></div>
-        </aside>
+        </aside>`}
       </div>`);
       this.root.appendChild(editor);
       this.stage = editor.querySelector(".stage");
@@ -164,12 +167,19 @@
         toast: (t, o) => toast(t, o),
         rightInset: () => (this.layersOpen && this.layers && !this.layers.collapsed ? 300 : 32),
       });
-      this.assistant = new Assistant(editor.querySelector(".assistant-body"), this);
+      // Embedded mode has no assistant panel (the project chat lives in JV):
+      // a stub keeps the shared canvas/layers code paths safe.
+      this.assistant = this.embedded
+        ? { load: null, renderChips() {}, updateContext() {}, onEvent() {}, cancel() {} }
+        : new Assistant(editor.querySelector(".assistant-body"), this);
       this.layers = new LayersPanel(this.stage, this);
-      editor.querySelector(".close-panel").addEventListener("click", () => this.setPanel(false));
-      this.bindResize(editor.querySelector(".panel-resize"));
+      const closePanel = editor.querySelector(".close-panel");
+      if (closePanel) closePanel.addEventListener("click", () => this.setPanel(false));
+      const resizeHandle = editor.querySelector(".panel-resize");
+      if (resizeHandle) this.bindResize(resizeHandle);
 
-      top.querySelector(".back").addEventListener("click", () => this.app.goHome());
+      const backBtn = top.querySelector(".back");
+      if (backBtn) backBtn.addEventListener("click", () => this.app.goHome());
       const name = top.querySelector(".name-input");
       name.value = this.meta.name;
       name.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter" || e.key === "Escape") { if (e.key === "Escape") name.value = this.meta.name; name.blur(); } });
@@ -185,11 +195,13 @@
       top.querySelector(".pct").addEventListener("click", (e) => this.viewMenu(e.currentTarget));
       top.querySelector(".canvas-btn").addEventListener("click", () => this.canvasDialog());
       top.querySelector(".export").addEventListener("click", (e) => this.exportMenu(e.currentTarget));
-      top.querySelector(".panel-toggle").addEventListener("click", () => this.setPanel(!this.panelOpen));
+      const panelToggle = top.querySelector(".panel-toggle");
+      if (panelToggle) panelToggle.addEventListener("click", () => this.setPanel(!this.panelOpen));
       top.querySelector(".layers-toggle").addEventListener("click", () => this.setLayersOpen(!this.layersOpen));
     }
 
     setPanel(open) {
+      if (!this.panel) return;
       this.panelOpen = open;
       this.panel.classList.toggle("hidden", !open);
       this.root.querySelector(".panel-toggle").classList.toggle("on", open);

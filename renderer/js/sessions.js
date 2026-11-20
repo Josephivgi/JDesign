@@ -181,6 +181,11 @@ export function displayItems(rows, opts = {}) {
       return;
     }
     flush();
+    // A drawing the agent made or changed shows as a card that opens its tab.
+    if (row.role === "artifact") {
+      out.push({ type: "artifact", drawingId: String(row.drawingId || ""), drawingName: String(row.drawingName || "Drawing"), projectId: String(row.projectId || ""), at, key: "r" + index });
+      return;
+    }
     if (row.role === "user") out.push({ type: "user", text: String(row.text || ""), sent: row.sent ? String(row.sent) : "", at, key: "u" + index });
     else if (row.role === "agent") {
       const text = cleanAgentText(row.text);

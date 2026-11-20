@@ -208,7 +208,27 @@ contextBridge.exposeInMainWorld("cutline", {
   editorChatUpdate: (payload) => ipcRenderer.invoke("editor-chat-update", payload),
   // Draw studio chats: its IPC handlers answer the { ok, value } envelope.
   jdrawChats: () => ipcRenderer.invoke("chats:all").then((r) => (r && r.ok ? r.value : [])),
-  jdrawOpenChat: (payload) => ipcRenderer.invoke("jdraw-open-chat", payload),
+  jdrawOpenChat: (payload) => ipcRenderer.invoke("jdraw-open-chat", payload).then((r) => (r && r.ok ? r.value : null)),
+  // Drawings inside a project: tabs, cards, migration and history.
+  jdrawAllDrawings: () => ipcRenderer.invoke("drawings:list").then((r) => (r && r.ok ? r.value : [])),
+  projectDrawings: (projectId) => ipcRenderer.invoke("drawings:for-project", projectId).then((r) => (r && r.ok ? r.value : [])),
+  jdrawDrawingCreate: (opts) => ipcRenderer.invoke("drawing:new", opts).then((r) => (r && r.ok ? r.value : null)),
+  jdrawThumb: (id) => ipcRenderer.invoke("drawing:thumb", id).then((r) => (r && r.ok ? r.value : null)),
+  jdrawProjectOf: (id) => ipcRenderer.invoke("drawing:project-of", id).then((r) => (r && r.ok ? r.value : "")),
+  jdrawUseInVideo: (id) => ipcRenderer.invoke("draw:to-video", id).then((r) => (r && r.ok ? r.value : null)),
+  jdrawUndoTurn: (projectId) => ipcRenderer.invoke("draw:undo-turn", projectId).then((r) => (r && r.ok ? r.value : 0)),
+  jdrawCanUndoTurn: (projectId) => ipcRenderer.invoke("draw:can-undo", projectId).then((r) => (r && r.ok ? !!r.value : false)),
+  // The embedded draw view: the editor measures its stage rect and places it.
+  jdrawViewPlace: (opts) => ipcRenderer.invoke("draw-view:place", opts).then((r) => (r && r.ok ? r.value : false)),
+  jdrawViewHide: () => ipcRenderer.invoke("draw-view:hide").then((r) => (r && r.ok ? r.value : false)),
+  jdrawViewFreeze: () => ipcRenderer.invoke("draw-view:freeze").then((r) => (r && r.ok ? r.value : null)),
+  jdrawViewUnfreeze: () => ipcRenderer.invoke("draw-view:unfreeze").then((r) => (r && r.ok ? r.value : false)),
+  jdrawViewState: () => ipcRenderer.invoke("draw-view:state").then((r) => (r && r.ok ? r.value : null)),
+  onDrawEvent: (handler) => {
+    const listen = (_event, payload) => handler(payload || {});
+    ipcRenderer.on("jdraw:event", listen);
+    return () => ipcRenderer.removeListener("jdraw:event", listen);
+  },
   aiProjects: () => ipcRenderer.invoke("ai-projects-list"),
   aiProjectGet: (payload) => ipcRenderer.invoke("ai-project-get", payload),
   aiProjectCreate: (payload) => ipcRenderer.invoke("ai-project-create", payload),

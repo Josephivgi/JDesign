@@ -50,7 +50,7 @@ function sortedProjects(projects) {
   return rows.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
 }
 
-function projectThumb(project) {
+function projectThumb(project, drawing) {
   const sel = project.state && project.state.selectedAssetId;
   const renders = project.state && project.state.renders ? Object.values(project.state.renders) : [];
   const ids = renders.concat(sel ? [sel] : [], (project.assets || []).map((a) => a.id));
@@ -58,6 +58,8 @@ function projectThumb(project) {
     const src = thumbFor(store.mediaById(id));
     if (src) return '<img src="' + esc(src) + '" alt="" loading="lazy" draggable="false">';
   }
+  // No video poster yet: the first drawing's thumbnail stands in.
+  if (drawing && drawing.thumb) return '<img src="' + esc(drawing.thumb) + '" alt="" loading="lazy" draggable="false">';
   // No picture yet: say so plainly, in the project's frame shape.
   const [w, h] = String(project.aspectRatio || "16/9").split("/").map(Number);
   const ratio = w && h ? w / h : 16 / 9;
@@ -192,7 +194,12 @@ export function renderHome(main) {
       rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(c.updatedAt)].filter(Boolean).join(" · "), from: projectName(c.projectId), at: c.updatedAt, ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
     }
     for (const c of draw) {
-      rows.push({ key: "d" + c.id, title: c.title, sub: [c.agentName, timeAgo(c.updated)].filter(Boolean).join(" · "), from: c.drawingName || "A drawing", at: c.updated, ico: "palette", open: async () => { await api.setStudio("draw"); api.jdrawOpenChat({ drawingId: c.drawingId, chatId: c.id }); } });
+      // An old Draw chat opens in the project that owns its drawing.
+      rows.push({ key: "d" + c.id, title: c.title, sub: [c.agentName, timeAgo(c.updated)].filter(Boolean).join(" · "), from: c.drawingName || "A drawing", at: c.updated, ico: "palette", open: async () => {
+        const projectId = await api.jdrawProjectOf(c.drawingId).catch(() => "");
+        if (projectId) emit("navigate", { page: "editor", params: { projectId, drawingId: c.drawingId } });
+        else toast("That drawing has no project yet", true);
+      } });
     }
     rows.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
     box.innerHTML = rows.length
@@ -222,13 +229,18 @@ export function renderHome(main) {
     if (!projects.length) return '<p class="proj-none">No projects yet. The videos you make show up here.</p>';
     const rows = sortedProjects(projects.slice());
     if (!rows.length) return '<div class="card empty"><p>No project matches “' + esc(list.query) + '”.</p></div>';
+    const drawingMap = store.drawingsAll || [];
+    const drawingsFor = (id) => drawingMap.filter((d) => d.projectId === id);
     return '<div class="grid">' + rows.map((p) => {
       const status = projectStatus(p);
       const empty = isEmptyProject(p);
+      const ds = drawingsFor(p.id);
+      // The card says what is inside: "1 clip, 3 drawings".
+      const contents = [status.ready ? "" : status.label, ds.length ? ds.length + (ds.length === 1 ? " drawing" : " drawings") : "", String(p.aspectRatio || "16/9").replace("/", ":"), timeAgo(p.updatedAt)].filter(Boolean).join(" · ");
       return '<div class="proj" role="button" tabindex="0" data-open="' + esc(p.id) + '" title="Open ' + esc(p.name) + '">' +
-        '<div class="proj-thumb' + (empty ? " is-empty" : "") + '">' + projectThumb(p) + (status.ready ? '<span class="proj-badge">' + icon("checkCircle", "i-sm") + esc(status.label) + "</span>" : "") + "</div>" +
+        '<div class="proj-thumb' + (empty && !ds.length ? " is-empty" : "") + '">' + projectThumb(p, ds[0]) + (status.ready ? '<span class="proj-badge">' + icon("checkCircle", "i-sm") + esc(status.label) + "</span>" : "") + "</div>" +
         // The badge already says a video is ready, so the meta line does not repeat it.
-        '<div class="proj-meta"><strong class="ellipsis">' + esc(p.name) + "</strong><small>" + esc([status.ready ? "" : status.label, String(p.aspectRatio || "16/9").replace("/", ":"), timeAgo(p.updatedAt)].filter(Boolean).join(" · ")) + "</small></div>" +
+        '<div class="proj-meta"><strong class="ellipsis">' + esc(p.name) + "</strong><small>" + esc(contents) + "</small></div>" +
         '<button type="button" class="icon-btn icon-btn-sm proj-more" data-more="' + esc(p.id) + '" title="Project options" aria-label="Options for ' + esc(p.name) + '">' + icon("more") + "</button></div>";
     }).join("") + "</div>";
   }
@@ -444,7 +456,10 @@ export function renderHome(main) {
           } },
           "sep",
           { label: "Delete project", icon: "trash", danger: true, onSelect: async () => {
-            const ok = await confirmDialog({ title: "Delete " + project.name + "?", body: "The project and its chats are removed. Media stays in your library, and renders stay until you clean them up.", confirm: "Delete", danger: true });
+            // Deleting a project deletes its drawings too, so the ask names them.
+            const ds = await api.projectDrawings(project.id).catch(() => []);
+            const named = ds.length ? " Its " + (ds.length === 1 ? "drawing" : "drawings") + " go with it: " + ds.slice(0, 6).map((d) => d.name).join(", ") + (ds.length > 6 ? ", and more" : "") + "." : "";
+            const ok = await confirmDialog({ title: "Delete " + project.name + "?", body: "The project and its chats are removed." + named + " Media stays in your library, and renders stay until you clean them up.", confirm: "Delete", danger: true });
             if (!ok) return;
             await api.aiProjectDelete({ id: project.id }).catch((e) => toast(errorText(e), true));
             await refreshProjects();
@@ -456,6 +471,8 @@ export function renderHome(main) {
   };
 
   paint();
+  // Drawing counts and thumbs on the cards come from Draw's store.
+  void api.jdrawAllDrawings().then((ds) => { store.drawingsAll = ds || []; paint(); }).catch(() => {});
   void renderChats();
   // Files dropped anywhere on Home are imported and attached to the launcher.
   const pageEl = main.querySelector("[data-home]");
@@ -467,6 +484,11 @@ export function renderHome(main) {
   const offs = [
     on("projects", paint),
     on("snapshot", paintPins),
+    // A drawing renamed or made anywhere updates card counts and thumbs.
+    on("draw-event", () => {
+      store.drawingsAll = null;
+      void api.jdrawAllDrawings().then((ds) => { store.drawingsAll = ds || []; paint(); }).catch(() => {});
+    }),
     on("harnesses", () => {
       if (!draft.picked || !draft.harnessId) draft.harnessId = defaultHarnessId();
       syncModel();

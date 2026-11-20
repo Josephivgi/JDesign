@@ -305,6 +305,8 @@ export function mountChat(root, ctx) {
       pinned: pins.map((id) => store.mediaById(id)),
       mediaById: (id) => store.mediaById(id),
       userEdits,
+      drawings: ctx.drawings ? ctx.drawings() : [],
+      openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "",
     });
 
   // ---------- send / stop ----------
@@ -663,6 +665,18 @@ export function mountChat(root, ctx) {
         "</div></div>"
       );
     }
+    if (item.type === "artifact") {
+      // A drawing the agent made or changed: thumb plus name, opens its tab.
+      const d = ((ctx.drawings && ctx.drawings()) || []).find((x) => x.id === item.drawingId) || {};
+      const thumb = d.thumb ? '<img src="' + esc(d.thumb) + '" alt="" loading="lazy" draggable="false">' : '<span class="art-ico">' + icon("pencil") + "</span>";
+      return (
+        '<button type="button" class="artifact" data-artifact="' + esc(item.drawingId) + '" title="Open ' + esc(item.drawingName) + '">' +
+        thumb +
+        '<span class="grow"><span class="art-t">' + esc(item.drawingName) + '</span><span class="art-s">Drawing</span></span>' +
+        icon("chevRight", "i-sm chev") +
+        "</button>"
+      );
+    }
     if (item.type === "error") {
       const why = explainFailure(item.text);
       // Only the newest failure gets a button; older ones are history.
@@ -990,6 +1004,11 @@ export function mountChat(root, ctx) {
         thread.scrollTop += again.getBoundingClientRect().top - top;
         again.focus({ preventScroll: true });
       }
+      return;
+    }
+    const artifact = t.closest("[data-artifact]");
+    if (artifact) {
+      if (ctx.onOpenDrawing) ctx.onOpenDrawing(artifact.dataset.artifact);
       return;
     }
     const perm = t.closest("[data-perm]");

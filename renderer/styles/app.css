@@ -1542,3 +1542,28 @@ html[data-density="compact"] .el-history-wrap > summary { min-height: 36px; }
 .agent-meta { display: flex; gap: 8px; color: var(--text-3); font-size: var(--fs-xs); margin-left: -6px; opacity: 0; transition: opacity var(--t-fast); }
 .msg-agent:hover .agent-meta, .msg-agent:focus-within .agent-meta { opacity: 1; }
 .voice-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+
+/* Artifact tabs: Video plus one tab per drawing on the project stage */
+.art-tabs { display: flex; align-items: center; gap: 6px; padding: 0 0 8px; flex-wrap: wrap; }
+.art-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-1); color: var(--text-2); font: var(--fs-sm)/1.3 var(--font); cursor: pointer; }
+.art-tab:hover { background: var(--bg-2); color: var(--text); }
+.art-tab.is-on { color: var(--text); border-color: var(--accent); background: var(--bg-2); }
+.art-tab .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.art-tabs .grow { flex: 1; }
+
+/* A drawing tab swaps the video stage for the embedded Draw view */
+.stage-wrap { position: relative; }
+.workbench.is-draw .stage-wrap > *:not(.draw-freeze) { visibility: hidden; }
+.workbench.is-draw .stage-wrap { background: var(--bg-1); }
+.workbench.is-draw .transport, .workbench.is-draw .cutstrip, .workbench.is-draw .outputs { display: none; }
+.draw-freeze { position: absolute; inset: 0; z-index: 5; background-color: var(--bg-1); background-size: contain; background-position: center; background-repeat: no-repeat; border-radius: var(--r); }
+
+/* A drawing the agent made or changed, as a card in the project chat */
+.artifact { display: flex; align-items: center; gap: 10px; width: 100%; margin: 4px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-1); color: var(--text); font: var(--fs-sm)/1.3 var(--font); text-align: left; cursor: pointer; }
+.artifact:hover { background: var(--bg-2); }
+.artifact img { width: 56px; height: 36px; object-fit: cover; border-radius: var(--r-sm); border: 1px solid var(--line); flex-shrink: 0; }
+.artifact .art-ico { display: flex; align-items: center; justify-content: center; width: 56px; height: 36px; border-radius: var(--r-sm); border: 1px solid var(--line); color: var(--text-3); flex-shrink: 0; }
+.artifact .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.artifact .art-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact .art-s { color: var(--text-3); font-size: var(--fs-xs); }

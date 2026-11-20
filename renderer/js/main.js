@@ -17,30 +17,22 @@ let teardown = null;
 
 export function navigate(page, params = {}) {
   const next = Object.assign({ page }, params);
-  const same = store.route.page === next.page && store.route.projectId === next.projectId && store.route.section === next.section && store.route.plugin === next.plugin && store.route.pageId === next.pageId && store.route.chatId === next.chatId;
+  const same = store.route.page === next.page && store.route.projectId === next.projectId && store.route.section === next.section && store.route.plugin === next.plugin && store.route.pageId === next.pageId && store.route.chatId === next.chatId && store.route.drawingId === next.drawingId;
   store.route = next;
   if (same && page !== "settings") return;
   closeMenu();
   paint();
 }
 
-// Which studio is on show. Draw runs in a view beside the rail, so the rail stays usable.
-let studioNow = "video";
-// JV pages and dialogs sit under the Draw view while Draw is up: anything
-// opened from the rail brings the Video studio back first.
-const toVideo = () => { if (studioNow === "draw" && api.setStudio) api.setStudio("video"); };
-
 function railMarkup() {
   // Inside a project nothing is highlighted: the editor is not one of the rail pages.
-  const inDraw = studioNow === "draw";
-  const page = inDraw ? "" : store.route.page;
+  const page = store.route.page === "editor" ? "" : store.route.page;
   return (
     '<nav class="rail" aria-label="Main">' +
     '<div class="rail-logo" aria-label="JDesign">JD</div>' +
-    // The studio pair is one selection: Video Editor or Drawing. It is shown by
-    // a filled tile, never the page marker bar, so only one bar shows at a time.
-    '<button class="rail-link is-studio' + (inDraw ? "" : " is-on") + '" data-studio="video" title="Video Editor">' + icon("film") + "<span>Video Editor</span></button>" +
-    '<button class="rail-link is-studio' + (inDraw ? " is-on" : "") + '" data-studio="draw" title="Drawing (Ctrl D)">' + icon("pencil") + "<span>Drawing</span></button>" +
+    // One studio: a project holds a video and its drawings. The Projects tile
+    // is the way back to the launcher from anywhere.
+    '<button class="rail-link is-studio is-on" data-nav="home" title="Projects">' + icon("film") + "<span>Projects</span></button>" +
     '<div class="rail-sep" role="separator"></div>' +
     NAV.map((item) =>
       '<button class="rail-link' + (page === item.page ? " is-on" : "") + '" data-nav="' + item.page + '" title="' + item.label + " (Ctrl " + item.key + ')">' +
@@ -72,7 +64,7 @@ function paint() {
   root.innerHTML = railMarkup() + '<main class="main" id="main"></main>';
   const main = document.getElementById("main");
   const page = store.route.page;
-  if (page === "editor") teardown = renderEditor(main, store.route.projectId, { chatId: store.route.chatId });
+  if (page === "editor") teardown = renderEditor(main, store.route.projectId, { chatId: store.route.chatId, drawingId: store.route.drawingId });
   else if (page === "library") teardown = renderLibrary(main);
   else if (page === "agents") teardown = renderAgents(main);
   else if (page === "settings") teardown = renderSettings(main, store.route.section);
@@ -90,41 +82,23 @@ function repaintRail() {
 }
 
 document.addEventListener("click", (event) => {
-  const studio = event.target.closest("[data-studio]");
-  if (studio) {
-    event.preventDefault();
-    if (studio.dataset.studio === "draw") {
-      if (api.setStudio) api.setStudio("draw");
-    } else if (studioNow === "draw") {
-      if (api.setStudio) api.setStudio("video");
-    } else {
-      // Home has no rail button of its own: the Video Editor tile is the way
-      // back to the launcher, so both are never marked at once.
-      navigate("home");
-    }
-    return;
-  }
   const nav = event.target.closest("[data-nav]");
   if (nav) {
     event.preventDefault();
-    if (studioNow === "draw" && api.setStudio) api.setStudio("video");
     navigate(nav.dataset.nav);
     return;
   }
   const pnav = event.target.closest("[data-plugin-nav]");
   if (pnav) {
     event.preventDefault();
-    toVideo();
     navigate("plugin", { plugin: pnav.dataset.pluginNav, pageId: pnav.dataset.pluginPageId });
     return;
   }
   if (event.target.closest("[data-palette]")) {
-    toVideo();
     openPalette();
     return;
   }
   if (event.target.closest("[data-help]")) {
-    toVideo();
     showShortcuts();
     return;
   }
@@ -154,18 +128,17 @@ document.addEventListener("keydown", (event) => {
   const mod = event.ctrlKey || event.metaKey;
   if (mod && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    toVideo();
     openPalette();
     return;
   }
-  if (mod && !event.shiftKey && event.key.toLowerCase() === "d" && !typing() && api.setStudio) {
+  // Ctrl D makes a new drawing inside the open project.
+  if (mod && !event.shiftKey && event.key.toLowerCase() === "d" && !typing()) {
     event.preventDefault();
-    api.setStudio("draw");
+    emit("new-drawing");
     return;
   }
   if (mod && event.key === ",") {
     event.preventDefault();
-    toVideo();
     navigate("settings");
     return;
   }
@@ -173,14 +146,12 @@ document.addEventListener("keydown", (event) => {
     const item = NAV[Number(event.key) - 1];
     if (item) {
       event.preventDefault();
-      toVideo();
       navigate(item.page);
     }
     return;
   }
   if (mod && event.key.toLowerCase() === "n" && !typing()) {
     event.preventDefault();
-    toVideo();
     navigate("home");
     setTimeout(() => {
       const box = $("[data-launch-input]");
@@ -190,7 +161,6 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "?" && !typing() && !mod) {
     event.preventDefault();
-    toVideo();
     showShortcuts();
   }
 });
@@ -211,6 +181,7 @@ function showShortcuts() {
       ["Ctrl B", "Show or hide the media panel"],
       ["Ctrl J", "Show or hide the chat"],
       ["Ctrl L", "Focus the chat box"],
+      ["Ctrl D", "New drawing"],
       ["Esc in the chat box", "Stop the agent while it works"],
     ]],
   ];
@@ -227,7 +198,7 @@ function openPalette() {
   const projects = store.projects || [];
   const commands = [
     { label: "Start a new video", icon: "plus", kbd: "Ctrl N", run: () => { navigate("home"); setTimeout(() => { const b = $("[data-launch-input]"); if (b) b.focus(); }, 0); } },
-    { label: "Open the Draw studio", icon: "pencil", kbd: "Ctrl D", run: () => api.setStudio && api.setStudio("draw") },
+    { label: "New drawing", icon: "pencil", kbd: "Ctrl D", run: () => emit("new-drawing") },
     { label: "Home", icon: "home", run: () => navigate("home") },
     { label: "Library", icon: "library", kbd: "Ctrl 1", run: () => navigate("library") },
     { label: "Agents", icon: "bot", kbd: "Ctrl 2", run: () => navigate("agents") },
@@ -249,10 +220,13 @@ function openPalette() {
   const listEl = dlg.querySelector("[data-pl]");
   let active = 0;
   let items = [];
+  let drawings = store.drawingsAll || null;
   const paintList = () => {
     const q = input.value.trim().toLowerCase();
     const projectItems = projects.map((p) => ({ label: p.name, sub: timeAgo(p.updatedAt) || "Project", icon: "film", run: () => navigate("editor", { projectId: p.id }) }));
-    items = commands.concat(pluginCommands(), projectItems).filter((item) => !q || item.label.toLowerCase().includes(q)).slice(0, 40);
+    // Drawings are searchable too: a row opens its project on that tab.
+    const drawingItems = (drawings || []).map((d) => ({ label: d.name, sub: "Drawing", icon: "pencil", run: () => { if (d.projectId) navigate("editor", { projectId: d.projectId, drawingId: d.id }); } }));
+    items = commands.concat(pluginCommands(), projectItems, drawingItems).filter((item) => !q || item.label.toLowerCase().includes(q)).slice(0, 40);
     if (active >= items.length) active = Math.max(0, items.length - 1);
     listEl.innerHTML = items.length
       ? items.map((item, i) =>
@@ -289,6 +263,7 @@ function openPalette() {
   paintList();
   setTimeout(() => input.focus(), 0);
   if (!store.projects) refreshProjects().then(() => paintList()).catch(() => {});
+  if (!drawings && api.jdrawAllDrawings) api.jdrawAllDrawings().then((ds) => { drawings = store.drawingsAll = ds || []; paintList(); }).catch(() => {});
 }
 
 // ---------- agent bridge (MCP tools that drive the app) ----------
@@ -474,8 +449,15 @@ window.addEventListener("error", (event) => {
 on("navigate", ({ page, params }) => navigate(page, params));
 if (api.onStudioChanged) api.onStudioChanged((message) => {
   if (message && message.library) refreshSnapshot().catch(() => {});
-  if (message && message.studio) { studioNow = message.studio === "draw" ? "draw" : "video"; repaintRail(); }
 });
-if (api.currentStudio) api.currentStudio().then((r) => { if (r && r.studio === "draw") { studioNow = "draw"; repaintRail(); } }).catch(() => {});
+// Drawings live inside projects now: Draw reports selects, new artifacts and
+// list changes on jdraw:event, and the project editor reacts to them.
+if (api.onDrawEvent) api.onDrawEvent((message) => {
+  const msg = message || {};
+  if (msg.kind === "draw:list-changed") store.drawingsAll = null;
+  emit("draw-event", msg);
+  if (msg.kind === "draw:open-chat" && msg.projectId) navigate("editor", { projectId: msg.projectId, drawingId: msg.drawingId });
+  if (msg.kind === "draw:select" && msg.projectId && store.route.projectId !== msg.projectId) navigate("editor", { projectId: msg.projectId, drawingId: msg.drawingId });
+});
 if (api.onStudioTheme) api.onStudioTheme(({ mode }) => { if (["light", "dark", "system"].includes(mode)) setPrefs({ theme: mode }); });
 boot();

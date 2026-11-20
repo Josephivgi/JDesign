@@ -177,6 +177,40 @@ function switchStudio(to) {
   return target;
 }
 
+// Drawings saved before the unified Projects page have no project. Each one
+// becomes its own project (same name) in the active workspace; nothing is
+// deleted and both databases are backed up first.
+async function migrateLooseDrawings() {
+  if (!drawStudio || typeof drawStudio.looseDrawings !== "function") return;
+  const loose = drawStudio.looseDrawings();
+  if (!loose.length) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dbFiles = [path.join(app.getPath("userData"), "draw", "jdraw.db"), path.join(dataRoot(), "ai-video-projects.db")];
+  for (const file of dbFiles) {
+    for (const ext of ["", "-wal", "-shm"]) {
+      const src = file + ext;
+      try {
+        if (fssync.existsSync(src)) fssync.copyFileSync(src, src + ".bak-" + stamp);
+      } catch (error) {
+        logCrash("migration backup", src + ": " + ((error && error.message) || error));
+      }
+    }
+  }
+  const state = await loadState();
+  const projects = require("../lib/ai-projects");
+  for (const d of loose) {
+    try {
+      const project = await Promise.resolve(projects.createProject(dataRoot(), { workspaceId: state.activeWorkspaceId, name: d.name || "Drawing", aspectRatio: "16/9" }));
+      if (project && project.id) drawStudio.setDrawingProject(d.id, project.id);
+    } catch (error) {
+      logCrash("drawing migration", d.id + ": " + ((error && error.message) || error));
+    }
+  }
+  try {
+    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send("studio-changed", { studio: currentStudio });
+  } catch {}
+}
+
 // The packaged app has died invisibly (no WER record, no dumps), so exits
 // and crashes are logged to a file that outlives the process.
 const CRASH_LOG_MAX = 512 * 1024;
@@ -277,7 +311,10 @@ function attachMainIpc() {
   const { attachAiProjectsIpc } = require("./ai-projects-ipc.cjs");
   attachRecorderIpc({ dataRoot });
   attachEditorChatIpc({ dataRoot });
-  attachAiProjectsIpc({ dataRoot });
+  attachAiProjectsIpc({
+    dataRoot,
+    deleteDrawingsForProject: (projectId) => (drawStudio ? drawStudio.deleteDrawingsForProject(projectId) : 0),
+  });
   require("./presets-ipc.cjs").attachPresetsIpc({ dataRoot, appRoot: path.join(__dirname, "..") });
   const { attachJeditorIpc } = require("./jeditor-ipc.cjs");
   attachJeditorIpc({
@@ -309,7 +346,16 @@ function attachMainIpc() {
   // so the smoke has to list real harnesses and open the real marketplace. It
   // starts the MCP bridge but never spawns an agent until a prompt asks.
   const { attachAgentHub } = require("./agent-hub-ipc.cjs");
-  agentHub = attachAgentHub({ dataRoot, appRoot: path.join(__dirname, ".."), log: logCrash });
+  agentHub = attachAgentHub({
+    dataRoot,
+    appRoot: path.join(__dirname, ".."),
+    log: logCrash,
+    // Every project chat gets the drawing tools bound to its project. The
+    // closures read drawStudio lazily because it initializes after the hub.
+    drawMcp: (ids) => (drawStudio && typeof drawStudio.mcpEntryFor === "function" ? drawStudio.mcpEntryFor(ids) : null),
+    drawTurnChanged: (projectId) => Promise.resolve(drawStudio && typeof drawStudio.turnChangedDocs === "function" ? drawStudio.turnChangedDocs(projectId) : []),
+    drawCheckDrawing: (docId, o) => Promise.resolve(drawStudio && typeof drawStudio.checkProjectDrawing === "function" ? drawStudio.checkProjectDrawing(docId, o) : null),
+  });
 }
 
 let agentHub = null;
@@ -2311,6 +2357,13 @@ app.whenReady().then(async () => {
         try { mainWin.webContents.send("studio-theme", { mode }); } catch {}
       },
       onSmokeExit: (code) => app.exit(code),
+      // A drawing an agent made or changed mid-turn becomes a card in the
+      // project chat transcript.
+      onArtifact: (info) => {
+        try {
+          if (agentHub && agentHub.acp && typeof agentHub.acp.recordDrawArtifact === "function") agentHub.acp.recordDrawArtifact(info);
+        } catch {}
+      },
       // Draw hands a finished drawing to the video library (same path as a dropped file).
       addToVideoLibrary: async (payload) => {
         const state = await loadState();
@@ -2323,6 +2376,7 @@ app.whenReady().then(async () => {
       },
     });
     if (DRAW_SMOKE) drawStudio.show(true);
+    void migrateLooseDrawings().catch((error) => logCrash("drawing migration", (error && (error.stack || error.message)) || error));
   } catch (error) {
     logCrash("draw init", (error && (error.stack || error.message)) || error);
   }
