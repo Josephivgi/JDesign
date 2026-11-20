@@ -175,10 +175,12 @@ export function renderHome(main) {
       '<div data-chats></div>';
     paintPins();
     wire();
+    drawChats();
   };
 
   // Chat history across both studios, newest first. The label at the end of
   // each row says where the chat started: its project or its drawing.
+  const importing = new Set();
   const renderChats = async () => {
     if (!inner.querySelector("[data-chats]")) return;
     let video = [];
@@ -188,9 +190,10 @@ export function renderHome(main) {
     const rows = [];
     const projectName = (id) => ((store.projects || []).find((p) => p.id === id) || {}).name || "A project";
     const agentName = (harnessId) => ((store.harnesses || []).find((h) => h.id === harnessId) || {}).name || "";
+    const drawAt = new Map(draw.filter((d) => d.jvChatId).map((d) => [d.jvChatId, d.updated]));
     for (const c of video) {
       if (!(c.messageCount > 0) && !c.hasAcp) continue;
-      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(c.updatedAt)].filter(Boolean).join(" · "), from: projectName(c.projectId), at: c.acpTranscriptTailAt || c.updatedAt, ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
+      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(drawAt.get(c.id) || c.updatedAt)].filter(Boolean).join(" · "), from: projectName(c.projectId), at: drawAt.get(c.id) || c.updatedAt, ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
     }
     const haveVideo = new Set(video.map((v) => v.id));
     for (const c of draw) {
@@ -198,6 +201,10 @@ export function renderHome(main) {
       if (c.jvChatId && haveVideo.has(c.jvChatId)) continue;
       // An old Draw chat opens in the project that owns its drawing.
       rows.push({ key: "d" + c.id, title: c.title, sub: [c.agentName, timeAgo(c.updated)].filter(Boolean).join(" · "), from: c.drawingName || "A drawing", at: c.updated, ico: "palette", open: async () => {
+        // A second click while the copy is being made does nothing.
+        if (importing.has(c.id)) return;
+        importing.add(c.id);
+        try {
         const projectId = await api.jdrawProjectOf(c.drawingId).catch(() => "");
         if (!projectId) { toast("That drawing has no project yet", true); return; }
         // The project chat is where chats continue: the Draw conversation
@@ -208,25 +215,40 @@ export function renderHome(main) {
           if (chatId) { const rec = await api.editorChatGet({ id: chatId }); if (!rec || !rec.chat) chatId = ""; }
           if (!chatId) {
             const msgs = (await api.jdrawChatMessages({ drawingId: c.drawingId, chatId: c.id })) || [];
-            const rec = await api.editorChatCreate({ workspaceId: store.workspaceId, page: "ai", projectId, model: "" });
-            chatId = rec.chat.id;
-            await api.editorChatSave({ chatId, messages: msgs, light: true });
-            const patch = { title: c.title };
-            if (c.agent && (store.harnesses || []).some((h) => h.id === c.agent)) patch.harnessId = c.agent;
-            await api.editorChatUpdate({ id: chatId, patch, light: true }).catch(() => {});
-            await api.jdrawChatImported({ chatId: c.id, jvChatId: chatId });
+            // Nothing readable to carry over: open the drawing, keep the row.
+            if (msgs.length) {
+              const rec = await api.editorChatCreate({ workspaceId: store.workspaceId, page: "ai", projectId, model: "" });
+              chatId = rec.chat.id;
+              try {
+                await api.editorChatSave({ chatId, messages: msgs, light: true });
+                const patch = { title: c.title };
+                if (c.agent && (store.harnesses || []).some((h) => h.id === c.agent)) patch.harnessId = c.agent;
+                await api.editorChatUpdate({ id: chatId, patch, light: true }).catch(() => {});
+                await api.jdrawChatImported({ chatId: c.id, jvChatId: chatId });
+              } catch (error) {
+                await api.editorChatDelete({ id: chatId }).catch(() => {});
+                throw error;
+              }
+            }
           }
         } catch { chatId = ""; }
         emit("navigate", { page: "editor", params: { projectId, drawingId: c.drawingId, chatId } });
+        } finally { importing.delete(c.id); }
       } });
     }
     // Video rows carry ISO text and Draw rows epoch ms: compare as times.
     const when = (v) => (typeof v === "number" ? v : Date.parse(v) || 0);
     rows.sort((a, b) => when(b.at) - when(a.at));
-    // The page repaints while the lists load: write into the live box.
+    store.chatRows = rows;
+    drawChats();
+  };
+
+  // The list lives in a cache so a page repaint (which rewrites the box)
+  // draws it again at once instead of waiting for the next fetch.
+  const drawChats = () => {
     const box = inner.querySelector("[data-chats]");
     if (!box) return;
-    store.chatRows = rows;
+    const rows = store.chatRows || [];
     box.innerHTML = rows.length
       ? '<div class="section-title">Chats <span class="count">' + rows.length + "</span></div>" +
         '<div class="chat-rows">' +
