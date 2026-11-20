@@ -232,6 +232,7 @@ export function renderHome(main) {
         try {
         const projectId = await api.jdrawProjectOf(c.drawingId).catch(() => "");
         if (!projectId) { toast("That drawing has no project yet", true); return; }
+        if (!(store.projects || []).some((p) => p.id === projectId)) { toast("That drawing's project is in another workspace", true); return; }
         // The project chat is where chats continue: the Draw conversation
         // is copied into it once (the link is kept with the Draw chat), then
         // reopened from there every time.

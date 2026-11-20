@@ -355,7 +355,9 @@ export function mountChat(root, ctx) {
     if (busy() || st.sending) {
       // A second message while one waits joins it, so nothing typed is lost.
       const prev = st.queued && (!st.queued.chatId || !st.chat || st.queued.chatId === st.chat.id) ? st.queued.text : "";
-      st.queued = { text: prev ? prev + "\n\n" + text : text, chatId: st.chat ? st.chat.id : "", steer: { mode: st.modePicked ? st.mode : "", openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "" } };
+      // The first message's mode and drawing stay with the joined message.
+      const prevSteer = prev && st.queued ? st.queued.steer : null;
+      st.queued = { text: prev ? prev + "\n\n" + text : text, chatId: st.chat ? st.chat.id : "", steer: prevSteer || { mode: st.modePicked ? st.mode : "", openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "" } };
       if (textArg == null) {
         input.value = "";
         autosize(input);
@@ -376,6 +378,7 @@ export function mountChat(root, ctx) {
     if (held) {
       if (held.text !== text) text = st.failure && st.failure.text === text ? text + "\n\n" + held.text : held.text + "\n\n" + text;
       st.queued = null;
+      if (!steer && held.steer) steer = held.steer;
     }
     st.sending = true;
     st.connectError = "";
@@ -468,7 +471,7 @@ export function mountChat(root, ctx) {
       }
       if (!/cancelled/i.test(msg) && same) {
         st.connectError = msg;
-        st.failure = Object.assign({ at: Date.now(), text }, explainFailure(msg));
+        st.failure = Object.assign({ at: Date.now(), text, steer: { mode, openDrawingId } }, explainFailure(msg));
         const lastUserRow = [...lastItems].reverse().find((i) => i.type === "user");
         const inThread = Boolean(lastUserRow && String(lastUserRow.text || "").trim() === text);
         if (!inThread && !input.value.trim()) {
@@ -1040,6 +1043,7 @@ export function mountChat(root, ctx) {
       const lastUserAt = lastItems.lastIndexOf(lastUser);
       const partial = Boolean(lastUser) && lastItems.slice(lastUserAt + 1).some((i) => i.type === "agent" || i.type === "steps");
       const CONTINUE = "Continue where you stopped. Check the project first and do not redo steps that are already done.";
+      const failedSteer = st.failure ? st.failure.steer : undefined;
       const original = (st.failure && st.failure.text) || (lastUser && lastUser.text) || "";
       // A failed send whose message never reached the thread starts fresh.
       const inThread = !st.failure || Boolean(lastUser && String(lastUser.text || "").trim() === st.failure.text);
@@ -1052,7 +1056,7 @@ export function mountChat(root, ctx) {
           input.value = "";
           autosize(input);
         }
-        void send(again);
+        void send(again, undefined, failedSteer);
       };
       if (action === "agents") return emit("navigate", { page: "agents" });
       if (action === "voice") return emit("navigate", { page: "settings", params: { section: "voice" } });
