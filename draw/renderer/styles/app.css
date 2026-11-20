@@ -118,9 +118,8 @@ h1, h2, h3, h4 { letter-spacing: -0.01em; }
    show focus instead (.composer:focus-within, .input:focus). */
 textarea:focus-visible, .input:focus-visible, .name-input:focus-visible, .text-entry:focus-visible { outline: none; }
 .drag { -webkit-app-region: drag; }
-.no-drag, .drag button, .drag input, .drag .menu-anchor { -webkit-app-region: no-drag; }
+.no-drag, .drag button, .drag input { -webkit-app-region: no-drag; }
 svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* ---------- controls */
 .btn {
@@ -133,25 +132,34 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .btn svg.i { width: 16px; height: 16px; }
 .btn:hover { background: var(--surface-3); }
 .btn:active { transform: translateY(0.5px); }
-.btn[disabled] { opacity: 0.45; pointer-events: none; }
-.btn.primary { background: var(--accent-solid); border-color: transparent; color: var(--accent-ink); }
-.btn.primary:hover { background: color-mix(in oklab, var(--accent-solid) 86%, var(--surface)); }
-.btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
-.btn.ghost:hover { background: var(--surface-3); color: var(--text); }
-.btn.danger { color: var(--danger); }
+/* Disabled keeps pointer events so the title tip still shows; the hover
+   resets below stop it looking clickable. */
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.btn[disabled]:hover { background: var(--surface-2); }
+.btn.primary[disabled]:hover { background: var(--accent-solid); }
+.btn.ghost[disabled]:hover { background: transparent; color: var(--text-2); }
+.btn[disabled]:active { transform: none; }
+/* JV's dashed modifier names (.btn-primary) are accepted beside Draw's flat
+   ones, so markup moved between the two studios stays styled. */
+.btn.primary, .btn-primary { background: var(--accent-solid); border-color: transparent; color: var(--accent-ink); }
+.btn.primary:hover, .btn-primary:hover { background: color-mix(in oklab, var(--accent-solid) 86%, var(--surface)); }
+.btn.ghost, .btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn.ghost:hover, .btn-ghost:hover { background: var(--surface-3); color: var(--text); }
+.btn.danger, .btn-danger { color: var(--danger); }
 /* A destructive confirm is a filled red button, not red text on the accent. */
-.btn.primary.danger { background: var(--danger); color: var(--on-danger); }
-.btn.primary.danger:hover { background: color-mix(in oklab, var(--danger) 88%, var(--text)); }
-.btn.sm { height: 28px; padding: 0 var(--s-2); font-size: var(--fs-sm); border-radius: var(--r-1); }
+.btn.primary.danger, .btn-primary.danger { background: var(--danger); color: var(--on-danger); }
+.btn.primary.danger:hover, .btn-primary.danger:hover { background: color-mix(in oklab, var(--danger) 88%, var(--text)); }
+.btn.sm, .btn-sm { height: 28px; padding: 0 var(--s-2); font-size: var(--fs-sm); border-radius: var(--r-1); }
 .icon-btn {
   width: 32px; height: 32px; border-radius: var(--r-2); border: 0; background: transparent; color: var(--text-2);
   display: inline-grid; place-items: center; cursor: pointer; transition: background 0.12s, color 0.12s;
 }
 .icon-btn:hover { background: var(--surface-3); color: var(--text); }
-.icon-btn[disabled] { opacity: 0.35; pointer-events: none; }
+.icon-btn[disabled] { opacity: 0.35; cursor: not-allowed; }
+.icon-btn[disabled]:hover { background: transparent; color: var(--text-2); }
 /* A picked option: tinted, outlined and in full ink, so it reads as on with
    the black and white accent too. */
-.icon-btn.on { background: var(--accent-soft); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.icon-btn.on, .icon-btn.is-on { background: var(--accent-soft); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent-line); }
 .input {
   height: 32px; padding: 0 var(--s-3); border-radius: var(--r-2); border: 1px solid var(--line-strong);
   background: var(--surface); outline: none; min-width: 0;
@@ -162,7 +170,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .seg { display: inline-flex; padding: 2px; border-radius: var(--r-2); background: var(--surface-3); border: 1px solid var(--line); gap: 2px; }
 .seg button { height: 26px; padding: 0 10px; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text-2); cursor: pointer; font-size: var(--fs-sm); font-weight: 500; display: inline-flex; align-items: center; }
 .seg button:hover { color: var(--text); }
-.seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.seg button.on, .seg button.is-on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
 input[type="range"] { -webkit-appearance: none; appearance: none; height: 20px; background: transparent; cursor: pointer; }
 input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: var(--surface-4); }
 input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); box-shadow: var(--shadow-sm); }
@@ -622,6 +630,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .canvas-form .flabel { font-size: var(--fs-sm); color: var(--text-2); font-weight: 500; }
 .canvas-form .paper-row { display: flex; align-items: center; gap: var(--s-3); }
 .canvas-form label.check { display: flex; align-items: center; gap: var(--s-2); margin: 0; cursor: pointer; color: var(--text); }
+.canvas-form label.check input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
 .canvas-form label.current-color { margin: 0; }
 .canvas-form .seg { justify-self: start; }
 
@@ -632,5 +641,18 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .menu.slash button { height: auto; padding: 6px var(--s-2); align-items: flex-start; }
 .menu.slash .cmd { font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: var(--fs-sm, 13px); color: var(--text); }
 .menu.slash .ttl { margin-left: var(--s-2); color: var(--text-2); font-size: var(--fs-sm, 13px); }
-.menu.slash .desc { white-space: normal; }
-.menu.slash .desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.menu.slash .desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
+
+/* Embedded mode: the idle surface before JV sends a drawing fills the stage
+   with the workspace colour instead of a transparent hole. */
+.embed-idle { height: 100%; background: var(--workspace); }
+
+/* Anything this sheet animates stops moving when the person asks for less. */
+@media (prefers-reduced-motion: reduce) {
+  .menu, .scrim, .dialog, .toast, .busy-pill, .swatch.fresh,
+  .rail .icon-btn .tip { animation: none; }
+  .busy-pill .spark, .typing i { animation: none; }
+  .btn, .icon-btn, .input, .picker, .chip, .composer, .swatch,
+  .size-card .shape-box, .art-card .thumb, .lrow, .panel-resize,
+  .lc-title .lc-chev, .name-input { transition: none; }
+}

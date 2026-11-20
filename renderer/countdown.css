@@ -753,3 +753,16 @@ html[data-overlay-role="frame"] .countdown-card {
     opacity: 0.35;
   }
 }
+
+/* The pulse and the loading spin are decoration on top of a state the color
+   already shows, so they stop when the person asks for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .countdown-card[data-mode="recording"] .live-dot {
+    animation: none;
+  }
+
+  .countdown-card[data-loading] button.record-bar-go .go-dot {
+    animation: none;
+    border-color: currentColor;
+  }
+}
