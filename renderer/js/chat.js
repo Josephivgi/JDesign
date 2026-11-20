@@ -383,13 +383,20 @@ export function mountChat(root, ctx) {
     // Typed in the box while a message is held after a failure: the held one
     // goes first, in the order written. A resend from a button leaves it
     // waiting to follow that turn.
+    const text0 = text;
     const held = textArg == null && st.queued && (!st.queued.chatId || !st.chat || st.queued.chatId === st.chat.id) ? st.queued : null;
     if (held) {
       const failedFirst = Boolean(st.failure && st.failure.text === text);
       if (held.text !== text) text = failedFirst ? text + "\n\n" + held.text : held.text + "\n\n" + text;
       st.queued = null;
       // The message that goes first keeps its own mode and drawing.
-      if (!steer) steer = (failedFirst && st.failure.steer) || held.steer || undefined;
+      if (!steer) {
+        const first = (failedFirst && st.failure.steer) || held.steer || undefined;
+        // New text typed with a different pick than the one that goes first:
+        // the joined ask goes out as Auto instead of forcing either pick.
+        const now = st.modePicked ? st.mode : "";
+        steer = first && held.text !== text0 && first.mode !== now ? { mode: "", openDrawingId: first.openDrawingId } : first;
+      }
     }
     st.sending = true;
     st.connectError = "";
@@ -854,7 +861,12 @@ export function mountChat(root, ctx) {
       setTimeout(() => {
         // The turn may have started in between (the agent reports busy a
         // moment after a send): keep waiting instead of dropping the message.
-        if (st.queued !== next || busy() || st.sending || st.destroyed) return;
+        if (st.queued !== next || st.destroyed) return;
+        if (busy() || st.sending) {
+          // Still busy: look again shortly, so the held ask is never stranded.
+          setTimeout(() => { if (st.queued === next && !st.destroyed) paintComposer(); }, 1000);
+          return;
+        }
         st.queued = null;
         void send(next.text, undefined, next.steer);
       }, 0);
