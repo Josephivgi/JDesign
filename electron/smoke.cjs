@@ -22,7 +22,12 @@ async function runJeditorSmoke(win, opts) {
     const event = args[0];
     const level = event && typeof event === "object" && "level" in event ? event.level : args[1];
     const message = event && typeof event === "object" && "message" in event ? event.message : args[2];
-    if (level === "error" || level === 3) errors.push(String(message).slice(0, 400));
+    // A ResizeObserver loop notice is a Chromium warning, not a real error:
+    // the observer only re-reads the rect on the next frame.
+    if (level === "error" || level === 3) {
+      const text = String(message || "");
+      if (!text.includes("ResizeObserver loop")) errors.push(text.slice(0, 400));
+    }
   });
   win.webContents.on("render-process-gone", (_e, details) => errors.push("renderer gone: " + JSON.stringify(details)));
   const js = (code) => win.webContents.executeJavaScript(code);
@@ -61,7 +66,8 @@ async function runJeditorSmoke(win, opts) {
     // The Draw studio lives in a view inside this window: it must load, the
     // switch must show and hide it, and the rail must offer it.
     report.draw = opts.drawProbe ? await opts.drawProbe().catch((e) => ({ ok: false, error: String((e && e.message) || e) })) : { ok: false, error: "no probe" };
-    report.railSwitch = await js("!!document.querySelector('.rail [data-studio=draw]') && !!document.querySelector('.rail [data-studio=video]')");
+    // One rail tile now: Projects. The studio switch buttons are gone.
+    report.railSwitch = await js("!!document.querySelector('.rail [data-nav=home]') && !document.querySelector('.rail [data-studio]')");
     report.snapshotError = await js("window.cutline.snapshot().then(() => '').catch((e) => String(e && e.message || e))");
     report.counts = await js("Promise.all([window.cutline.snapshot(), window.cutline.aiProjects()]).then(([s, p]) => ({ library: ((s && s.workspace && s.workspace.library) || []).length, projects: (Array.isArray(p) ? p : (p && p.projects) || []).length }))").catch((e) => ({ error: String(e.message || e) }));
     if (process.env.JEDITOR_SMOKE_IMPORT) {

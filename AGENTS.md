@@ -1,21 +1,23 @@
 # JDesign
 
-JDesign is one Electron app with two AI studios in one window: **Video** (JV, the video editor, `electron/`, `lib/`, `renderer/`) and **Draw** (JDraw, the drawing app, in `draw/`). It was made on 2026-11-17 by copying JEditor and JDraw into this folder; the original folders are untouched and are not read or written by this app.
+JDesign is one Electron app: a single **Projects** surface (JV, `electron/`, `lib/`, `renderer/`) where each project holds one video and any number of drawings, and **Draw** (JDraw, `draw/`) embedded in it as the drawing engine. It was made on 2026-11-17 by copying JEditor and JDraw into this folder; the original folders are untouched and are not read or written by this app.
 
-## How the two studios fit
+## How the two parts fit
 
 - `electron/main.cjs` owns the app: name, data folder (`%APPDATA%\JDesign`, video data in `data/`, Draw in `draw/`), single-instance lock, the one `BrowserWindow`. JV's renderer is the window's own page.
-- `draw/studio.cjs` (was JDraw's main.cjs) exports `init({ window, dataDir, onSwitch, getThemeMode, setThemeMode, getAccent, addToVideoLibrary })`. It puts JDraw's renderer in a `WebContentsView` that sits beside JV's rail (68px, `RAIL_WIDTH`) while Draw is on show and keeps running when hidden (an agent can keep drawing while you edit video). `draw/preload.cjs` and `draw/renderer/` are JDraw's, with small edits.
-- Switching: the rail buttons Video Editor / Drawing (Ctrl D). The rail stays on show in both studios, so Draw has no switch of its own. IPC `studio-switch` (JV) and `studio:switch` (Draw) both end in `switchStudio` in main.cjs.
+- `draw/studio.cjs` (was JDraw's main.cjs) exports `init({ window, dataDir, onSwitch, getThemeMode, setThemeMode, getAccent, addToVideoLibrary, onArtifact })`. Its renderer lives in a `WebContentsView` with `?embedded=1`: no Home, no assistant panel, opened straight on a drawing. JV's project editor measures its stage rect and places the view there (`draw-view:place`); the view stays alive while hidden so agents keep drawing. While a JV menu, dialog or palette is up, `draw-view:freeze` swaps the live view for a `capturePage` still.
+- Every drawing has a `project_id` (`draw/lib/store.cjs`). A project chat gets the `jdraw` MCP tools scoped to its project (`x-jdraw-project` / `x-jdraw-chat-id` headers; stdio proxy `draw/lib/mcp-stdio.cjs` for agents without HTTP MCP, including Devin). `list_drawings`, `new_drawing`, `open_drawing` cannot cross projects. Drawings show as stage tabs and as artifact cards in the project chat; there is exactly one prompt box per screen.
+- The Draw gate runs after a project chat turn that touched drawings (`drawGateAfterTurn` in `electron/acp-host.cjs`, beside the video slop gate; `drawTurnChanged` / `drawCheckDrawing` wired in `agent-hub-ipc.cjs` / `main.cjs`). "Undo agent changes" in a drawing tab reverts the drawings a turn touched.
+- The rail has one Projects tile. Ctrl D makes a new drawing inside the open project; Ctrl K finds drawings too. Old Draw chats (chat_threads) stay readable from Home's Chats list and open in the project that owns their drawing. Loose drawings migrate into their own project on startup, with timestamped database backups first.
 - One theme: JV's Light / Dark / System choice wins. `set-chrome` forwards the mode and the accent to Draw (`theme:set`); Draw's own toggle sends `studio:theme` back to JV. Draw uses the same neutrals, type and accent tokens as JV and keeps no accent of its own (`prefs:get accent` answers with JV's).
 - Draw to Video: Draw export menu, "Add to video library" (`studio:to-video-library` -> `addToVideoLibrary` -> the same library writer as a dropped file).
-- Each studio keeps its own agent list, MCP server (`jeditor-app` and `jdraw`) and chats. Not unified yet: one shared agent list, one shared chat, an agent that edits video and draws in the same turn.
+- Chat is unified per project: one project chat gets `jeditor-app` (video) and `jdraw` (drawings) in the same session, so an agent edits video and draws in one turn. Draw's own chat UI still exists for its standalone smoke but is not shown in the app.
 - Names left as they were on purpose: `window.cutline`, `window.jdraw`, `jeditor_*` MCP tools, `mcp__jdraw__*` permission gate, env vars `JEDITOR_*` and `JDRAW_*`, MCP server ids. `JDESIGN_USER_DATA` sets the data folder (it also accepts `JEDITOR_USER_DATA`).
 - Electron is 45.2.1 (Draw needs `node:sqlite`).
 
 ## Verify (hidden only, scratch data folder, never %APPDATA%\JDesign)
 
-- Video studio: `JDESIGN_USER_DATA=<scratch> JEDITOR_SMOKE_SHOTS=<dir> electron . --smoke` (also checks that Draw's view loaded and the switch shows/hides it). Add `JEDITOR_SMOKE_AGENT` for a real turn.
+- Video studio: `JDESIGN_USER_DATA=<scratch> JEDITOR_SMOKE_SHOTS=<dir> electron . --smoke` (also checks that the embedded Draw view loads, places on an exact rect, and hides). Add `JEDITOR_SMOKE_AGENT` for a real turn.
 - Draw studio: `JDESIGN_USER_DATA=<scratch> JDRAW_SMOKE_SHOTS=<dir> electron . --draw-smoke` (52 checks; add `JDRAW_SMOKE_AGENT=claude-code` for a real turn, `JDRAW_GATE_ROUNDS=1` keeps it short). The Draw smoke runs the same renderer in its own never-shown window, because a view in a window that is never shown gets no frames.
 - Not verified: the Draw view inside a visible window (needs a VM or a person looking); draw's `--drive` and `--mcp-host` modes were dropped in this app.
 

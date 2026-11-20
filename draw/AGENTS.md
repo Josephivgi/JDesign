@@ -6,7 +6,7 @@ Electron drawing app with ACP agents. Global rules apply (writing style, no wind
 
 - `main.cjs`: window, IPC, agent sessions, chat transcripts (main owns them), smoke hooks.
 - `lib/store.cjs`: SQLite (`node:sqlite`, no native modules). The main process owns every open drawing; all edits go through `apply(id, ops)` as one undo step and come back to the window as `doc:changed`.
-- `lib/mcp-server.cjs`: the `jdraw` MCP server (Streamable HTTP, JSON replies, bearer token, drawing id in the `x-jdraw-drawing` header). Injected into every ACP `session/new`.
+- `lib/mcp-server.cjs`: the `jdraw` MCP server (Streamable HTTP, JSON replies, bearer token). In JDesign it runs embedded in the JV project editor (`?embedded=1`: no Home, no assistant). A session binds to a drawing with `x-jdraw-drawing`, or to a project chat with `x-jdraw-project` and `x-jdraw-chat-id`; project sessions get `list_drawings`, `new_drawing` and `open_drawing`, all scoped to that project. `lib/mcp-stdio.cjs` proxies it for agents without HTTP MCP.
 - Settings (gear icon on Home) lists all 18 skills read-only via `skills:list` (`listSkills` in `lib/styles.cjs`). `npm run pack` (electron-builder --dir) packs `skills/**` into app.asar.
 - `skills/styles/<id>/SKILL.md` + `example.png`: style skills (15 looks from Image Studio, examples drawn in JDraw). `lib/styles.cjs` reads them from disk; agents get them through the `list_styles` and `get_style` MCP tools (the guide plus the example image).
 - Chat `/` menu (`renderer/js/assistant.js`): JDraw skills from `skills:list` (sent as a prompt that tells the agent to call `get_style`) and the agent's own commands from ACP `available_commands_update` (sent alone as one prompt block, which is what makes Claude Code run them as commands).

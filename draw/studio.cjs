@@ -1449,6 +1449,10 @@ async function init(opts) {
     show: showView,
     isShown: () => viewShown,
     webContents: () => view && view.webContents,
+    // Placement probes for the smoke test and the editor's stage rect.
+    place: (o) => placeView(o),
+    hideView: () => { placedRect = null; if (view) view.setVisible(false); viewShown = false; return true; },
+    viewState: () => ({ visible: !!viewShown, bounds: placedRect, drawingId: placedDoc }),
     // { url, token } for lib/acp-harnesses drawMcpForAcp: it builds the http
     // or stdio entry and stamps the project/chat binding onto it.
     mcpEntryFor: () => (mcp ? { url: mcp.url, token: mcp.token } : null),

@@ -169,7 +169,9 @@ let themeAccent = null;
 function switchStudio(to) {
   const target = to === "draw" ? "draw" : "video";
   currentStudio = target;
-  if (drawStudio) drawStudio.show(target === "draw");
+  // Drawings live on project tabs now: nothing shows the Draw view full
+  // size. The project editor's stage rect places it, so a switch only hides.
+  if (drawStudio) drawStudio.show(false);
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed() || isCountdownOverlay(win)) continue;
     try { win.webContents.send("studio-changed", { studio: target }); } catch {}
@@ -3582,19 +3584,21 @@ async function checkLibraryProtocol() {
   };
 }
 
-// Smoke: Draw's view loaded its page, and the studio switch shows and hides it.
+// Smoke: the embedded Draw view loaded, places on a stage rect exactly, and
+// hides again. Embedded mode has no Home screen of its own.
 async function drawProbe() {
   const wc = drawStudio && drawStudio.webContents();
   if (!wc || wc.isDestroyed()) return { ok: false, error: "no draw view" };
   for (let i = 0; i < 60 && wc.isLoading(); i++) await new Promise((r) => setTimeout(r, 250));
-  const page = await wc.executeJavaScript("({ app: typeof window.App, title: document.title, home: !!document.querySelector('.home'), settings: !!document.querySelector('.settings-btn'), api: typeof window.jdraw })");
-  const toDraw = switchStudio("draw");
-  const shownDraw = drawStudio.isShown();
-  const toVideo = switchStudio("video");
-  const shownVideo = drawStudio.isShown();
-  // Draw's Home has no studio switch of its own: the rail beside it is the switch.
-  const ok = page.app === "object" && page.home && page.settings && toDraw === "draw" && shownDraw && toVideo === "video" && !shownVideo;
-  return { ok, page, toDraw, shownDraw, toVideo, shownVideo };
+  const page = await wc.executeJavaScript("({ app: typeof window.App, title: document.title, home: !!document.querySelector('.home'), api: typeof window.jdraw, embedded: !!(window.App && window.App.embedded) })");
+  const rect = { x: 68, y: 40, width: 640, height: 360 };
+  const placed = drawStudio.place({ rect });
+  const shown = drawStudio.viewState();
+  drawStudio.hideView();
+  const hidden = drawStudio.viewState();
+  const boundsOk = shown && shown.bounds && ["x", "y", "width", "height"].every((k) => shown.bounds[k] === rect[k]);
+  const ok = page.app === "object" && page.api === "object" && page.embedded === true && !page.home && placed && boundsOk && shown.visible === true && hidden.visible === false;
+  return { ok, page, placed, shown, hidden };
 }
 
 async function runSmoke(win) {
