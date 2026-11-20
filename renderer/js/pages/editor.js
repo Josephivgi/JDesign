@@ -187,6 +187,7 @@ export function renderEditor(main, projectId, opts) {
     paintArtTabs();
     if (st.tab === "video") hideDrawView();
     else schedulePlace();
+    if (typeof chat !== "undefined" && chat && chat.stage) chat.stage();
   };
   const newDrawing = async () => {
     const d = await api.jdrawDrawingCreate({ projectId, name: "Drawing " + (st.drawings.length + 1) }).catch(() => null);

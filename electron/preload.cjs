@@ -208,6 +208,7 @@ contextBridge.exposeInMainWorld("cutline", {
   editorChatUpdate: (payload) => ipcRenderer.invoke("editor-chat-update", payload),
   // Draw studio chats: its IPC handlers answer the { ok, value } envelope.
   jdrawChats: () => ipcRenderer.invoke("chats:all").then((r) => (r && r.ok ? r.value : [])),
+  jdrawChatMessages: (payload) => ipcRenderer.invoke("chats:messages", payload).then((r) => (r && r.ok ? r.value : [])),
   jdrawOpenChat: (payload) => ipcRenderer.invoke("jdraw-open-chat", payload).then((r) => (r && r.ok ? r.value : null)),
   // Drawings inside a project: tabs, cards, migration and history.
   jdrawAllDrawings: () => ipcRenderer.invoke("drawings:list").then((r) => (r && r.ok ? r.value : [])),

@@ -180,8 +180,7 @@ export function renderHome(main) {
   // Chat history across both studios, newest first. The label at the end of
   // each row says where the chat started: its project or its drawing.
   const renderChats = async () => {
-    const box = inner.querySelector("[data-chats]");
-    if (!box) return;
+    if (!inner.querySelector("[data-chats]")) return;
     let video = [];
     let draw = [];
     try { video = (await api.editorChats({ workspaceId: store.workspaceId })) || []; } catch {}
@@ -197,11 +196,34 @@ export function renderHome(main) {
       // An old Draw chat opens in the project that owns its drawing.
       rows.push({ key: "d" + c.id, title: c.title, sub: [c.agentName, timeAgo(c.updated)].filter(Boolean).join(" · "), from: c.drawingName || "A drawing", at: c.updated, ico: "palette", open: async () => {
         const projectId = await api.jdrawProjectOf(c.drawingId).catch(() => "");
-        if (projectId) emit("navigate", { page: "editor", params: { projectId, drawingId: c.drawingId } });
-        else toast("That drawing has no project yet", true);
+        if (!projectId) { toast("That drawing has no project yet", true); return; }
+        // The project chat is where chats continue: the Draw conversation
+        // is copied into it once, then reopened from there every time.
+        let chatId = "";
+        try {
+          const done = JSON.parse(localStorage.getItem("jdesign.drawChatImports") || "{}");
+          chatId = done[c.id] || "";
+          if (chatId) { const rec = await api.editorChatGet({ id: chatId }); if (!rec || !rec.chat) chatId = ""; }
+          if (!chatId) {
+            const msgs = (await api.jdrawChatMessages({ drawingId: c.drawingId, chatId: c.id })) || [];
+            const rec = await api.editorChatCreate({ workspaceId: store.workspaceId, page: "ai", projectId, model: "" });
+            chatId = rec.chat.id;
+            await api.editorChatSave({ chatId, messages: msgs, light: true });
+            await api.editorChatUpdate({ id: chatId, patch: { title: c.title }, light: true }).catch(() => {});
+            done[c.id] = chatId;
+            localStorage.setItem("jdesign.drawChatImports", JSON.stringify(done));
+          }
+        } catch { chatId = ""; }
+        emit("navigate", { page: "editor", params: { projectId, drawingId: c.drawingId, chatId } });
       } });
     }
-    rows.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+    // Video rows carry ISO text and Draw rows epoch ms: compare as times.
+    const when = (v) => (typeof v === "number" ? v : Date.parse(v) || 0);
+    rows.sort((a, b) => when(b.at) - when(a.at));
+    // The page repaints while the lists load: write into the live box.
+    const box = inner.querySelector("[data-chats]");
+    if (!box) return;
+    store.chatRows = rows;
     box.innerHTML = rows.length
       ? '<div class="section-title">Chats <span class="count">' + rows.length + "</span></div>" +
         '<div class="chat-rows">' +
@@ -472,7 +494,7 @@ export function renderHome(main) {
 
   paint();
   // Drawing counts and thumbs on the cards come from Draw's store.
-  void api.jdrawAllDrawings().then((ds) => { store.drawingsAll = ds || []; paint(); }).catch(() => {});
+  void api.jdrawAllDrawings().then((ds) => { store.drawingsAll = ds || []; paint(); void renderChats(); }).catch(() => {});
   void renderChats();
   // Files dropped anywhere on Home are imported and attached to the launcher.
   const pageEl = main.querySelector("[data-home]");
@@ -487,7 +509,7 @@ export function renderHome(main) {
     // A drawing renamed or made anywhere updates card counts and thumbs.
     on("draw-event", () => {
       store.drawingsAll = null;
-      void api.jdrawAllDrawings().then((ds) => { store.drawingsAll = ds || []; paint(); }).catch(() => {});
+      void api.jdrawAllDrawings().then((ds) => { store.drawingsAll = ds || []; paint(); void renderChats(); }).catch(() => {});
     }),
     on("harnesses", () => {
       if (!draft.picked || !draft.harnessId) draft.harnessId = defaultHarnessId();

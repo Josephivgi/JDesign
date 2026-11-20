@@ -244,6 +244,8 @@ class DrawingStore {
       "INSERT INTO chat_threads (id, drawing_id, title, agent, model, messages, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     );
     const act = this.db.prepare("UPDATE drawings SET active_chat_id = ? WHERE id = ? AND (active_chat_id IS NULL OR active_chat_id = '')");
+    this.db.exec("BEGIN");
+    try {
     for (const row of this.db.prepare("SELECT * FROM chats").all()) {
       const id = G.uid("c");
       let title = "New chat";
@@ -255,6 +257,11 @@ class DrawingStore {
       act.run(id, row.drawing_id);
     }
     this.db.exec("DROP TABLE chats");
+    this.db.exec("COMMIT");
+    } catch (error) {
+      try { this.db.exec("ROLLBACK"); } catch {}
+      throw error;
+    }
   }
 
   mapChat(row) {

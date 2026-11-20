@@ -120,6 +120,8 @@ export function mountChat(root, ctx) {
     // What the ask is about: the video or the drawings. Starts on whichever
     // is on stage; the picker tells the model what to do on the next turn.
     mode: ctx.openDrawingId && ctx.openDrawingId() ? "draw" : "video",
+    // Once the person picks, the pick stays; until then it follows the stage.
+    modePicked: false,
   };
 
   root.innerHTML =
@@ -298,7 +300,7 @@ export function mountChat(root, ctx) {
 
   // ---------- prompt body ----------
 
-  const promptBody = (text, pins, chatId, userEdits) =>
+  const promptBody = (text, pins, chatId, userEdits, mode) =>
     buildPrompt({
       text,
       projectId: ctx.projectId,
@@ -311,7 +313,7 @@ export function mountChat(root, ctx) {
       userEdits,
       drawings: ctx.drawings ? ctx.drawings() : [],
       openDrawingId: ctx.openDrawingId ? ctx.openDrawingId() : "",
-      mode: st.mode,
+      mode,
     });
 
   // ---------- send / stop ----------
@@ -395,6 +397,7 @@ export function mountChat(root, ctx) {
     const startChatId = startChat ? startChat.id : "";
     const harnessId = st.harnessId;
     const modelId = st.modelId;
+    const mode = st.mode;
     const pins = st.pins.slice();
     const stillThere = () => (st.chat ? st.chat.id : "") === startChatId;
     try {
@@ -421,7 +424,7 @@ export function mountChat(root, ctx) {
       }
       // Hand edits on the timeline strip go out once, with this message.
       const userEdits = await api.aiProjectTakeUserEdits({ id: ctx.projectId }).catch(() => []);
-      const body = promptBody(text, pins, sc.chatId, userEdits);
+      const body = promptBody(text, pins, sc.chatId, userEdits, mode);
       let live = await connect(true, sc);
       if (!live) throw new Error((here() && st.connectError) || (getSession(sc) || {}).error || "The agent could not start.");
       if (live.authRequired) throw new Error(agentName(sc.harnessId) + " needs you to sign in first.");
@@ -1144,8 +1147,8 @@ export function mountChat(root, ctx) {
     if (t.closest("[data-mode]")) {
       // Tells the model what this ask is about: video edits or drawings.
       showMenu(t.closest("[data-mode]"), [
-        { label: "Video", sub: "Cut, caption and render the video", icon: "film", checked: st.mode === "video", onSelect: () => { st.mode = "video"; paintComposer(); } },
-        { label: "Draw", sub: "Make or change this project's drawings", icon: "pencil", checked: st.mode === "draw", onSelect: () => { st.mode = "draw"; paintComposer(); } },
+        { label: "Video", sub: "Cut, caption and render the video", icon: "film", checked: st.mode === "video", onSelect: () => { st.mode = "video"; st.modePicked = true; paintComposer(); } },
+        { label: "Draw", sub: "Make or change this project's drawings", icon: "pencil", checked: st.mode === "draw", onSelect: () => { st.mode = "draw"; st.modePicked = true; paintComposer(); } },
       ], { width: 260, align: "end", above: true });
       return;
     }
@@ -1289,6 +1292,12 @@ export function mountChat(root, ctx) {
 
   return {
     focus: () => input.focus(),
+    // The stage tab changed: an unpicked mode follows what is on stage.
+    stage: () => {
+      if (st.destroyed || st.modePicked) return;
+      const next = ctx.openDrawingId && ctx.openDrawingId() ? "draw" : "video";
+      if (next !== st.mode) { st.mode = next; paintComposer(); }
+    },
     // The project gained or lost media or a video: the starters change.
     refresh: () => {
       if (!st.destroyed) paintThread();

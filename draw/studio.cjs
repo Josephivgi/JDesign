@@ -115,7 +115,7 @@ async function sessionFor(docId, agentId, chatId) {
     mcpEntry: mcp.acpEntry(docId),
     // A reopened chat reloads its saved ACP session or replays its messages.
     wantSessionId: chat.acpSessionId,
-    history: chat.messages,
+    history: chat.messages.slice(),
     log: (l) => log(`[${docId}] ${l}`),
     emit: (ev) => onAgentEvent(docId, chat.id, ev),
   });
@@ -1217,6 +1217,15 @@ function registerIpc() {
   handle("chats:all", () =>
     store.allChats().map((c) => Object.assign({}, c, { agentName: (CATALOG.find((a) => a.id === c.agent) || {}).name || c.agent || "" })),
   );
+  // A Draw chat's conversation as plain user/assistant messages, so JV's
+  // project chat can carry it on.
+  handle("chats:messages", ({ drawingId, chatId }) => {
+    const c = store.chatById(chatId);
+    if (!c || c.drawingId !== drawingId) return [];
+    return (c.messages || [])
+      .filter((m) => m && (m.role === "user" || m.role === "agent") && String(m.text || "").trim())
+      .map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: String(m.text) }));
+  });
   const openChat = (id, chatId) => {
     const chat = chatFor(id, chatId);
     if (!chat.id) throw new Error("That chat no longer exists.");
