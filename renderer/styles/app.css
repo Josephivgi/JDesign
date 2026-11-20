@@ -510,6 +510,18 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 .proj-search { width: 220px; }
 .proj-search .input { font-weight: 400; font-size: var(--fs-sm); }
 .section-title .btn, .section-title .picker { font-weight: 500; }
+.chat-rows { display: flex; flex-direction: column; gap: 2px; }
+.chat-row {
+  display: flex; align-items: center; gap: var(--s-3); padding: 8px var(--s-3); border: 0; border-radius: var(--r);
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.chat-row:hover { background: var(--bg-2); }
+.chat-ico { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--bg-3); color: var(--text-2); }
+.chat-ico .i { width: 15px; height: 15px; }
+.chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.chat-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-s { font-size: var(--fs-xs); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-from { flex: none; max-width: 34%; padding: 2px var(--s-2); border-radius: 999px; border: 1px solid var(--line); color: var(--text-2); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* A design tile is a plate, not a black hole. The still sits on a token
    backdrop, so a slow or failed render still reads as a design; a tile with no

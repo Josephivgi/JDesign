@@ -78,6 +78,9 @@
       this.modelPrefs = {};
       this.status = { state: "idle" };
       this.chat = { messages: [] };
+      this.chatId = "";
+      this.chats = [];
+      this.drafts = new Map(); // chatId -> unsent composer text
       this.busy = false;
       this.canUndoTurn = false;
       this.skills = [];
@@ -121,7 +124,7 @@
           <div class="sel"><span class="sel-label">Effort</span><button type="button" class="picker effort-pick" aria-label="Effort"><span>Effort</span>${icon("chevron")}</button></div>
         </div>
         <textarea rows="2" placeholder="Ask for help with your drawing" aria-label="Message"></textarea>
-        <div class="row"><button type="button" class="btn ghost sm clear-chat" title="Start a new chat" aria-label="New chat">${icon("plus")}New chat</button><span class="ctx"></span><button type="submit" class="btn primary sm send">${icon("send")}Send</button></div>
+        <div class="row"><button type="button" class="btn ghost sm chats-btn" title="This drawing's chats" aria-label="Chats">${icon("chat")}Chats</button><button type="button" class="btn ghost sm clear-chat" title="Start a new chat; the old one stays in Chats" aria-label="New chat">${icon("plus")}New chat</button><span class="ctx"></span><button type="submit" class="btn primary sm send">${icon("send")}Send</button></div>
       </form>`);
       this.root.appendChild(this.composer);
       this.input = this.composer.querySelector("textarea");
@@ -153,7 +156,8 @@
       this.root.querySelector(".agent-pick").addEventListener("click", (e) => this.pickAgent(e.currentTarget));
       this.root.querySelector(".model-pick").addEventListener("click", (e) => this.pickModel(e.currentTarget));
       this.root.querySelector(".effort-pick").addEventListener("click", (e) => this.pickEffort(e.currentTarget));
-      this.root.querySelector(".clear-chat").addEventListener("click", () => this.clear());
+      this.root.querySelector(".clear-chat").addEventListener("click", () => this.newChat());
+      this.root.querySelector(".chats-btn").addEventListener("click", (e) => this.chatsMenu(e.currentTarget));
       this.autosize();
     }
 
@@ -163,8 +167,10 @@
       this.input.style.height = Math.min(168, Math.max(56, this.input.scrollHeight)) + "px";
     }
 
-    async load(chat, busy, canUndoTurn) {
+    async load(chat, busy, canUndoTurn, chats) {
       this.chat = chat || { messages: [] };
+      this.chatId = this.chat.id || "";
+      this.chats = chats || [];
       this.busy = !!busy;
       this.canUndoTurn = !!canUndoTurn;
       try {
@@ -605,31 +611,94 @@
       try { await jdraw.call("agent:cancel", this.editor.id); } catch {}
     }
 
-    async clear() {
-      if ((this.chat.messages || []).length) {
-        const ok = await UI.openDialog({
-          title: "Start a new chat?",
-          body: "The conversation is cleared. Your drawing stays as it is.",
-          buttons: [{ label: "Cancel", value: false }, { label: "New chat", value: true, primary: true }],
-        });
-        if (!ok) return;
-      }
-      if (this.busy) await this.cancel();
+    // ---------- chat threads
+    // Every chat the drawing ever had is kept; switching puts its transcript
+    // back and reloads the agent session that ran it.
+    applyChatResult(r) {
+      if (this.chatId) this.drafts.set(this.chatId, this.input.value);
+      this.chat = (r && r.chat) || { messages: [] };
+      this.chatId = this.chat.id || "";
+      this.chats = (r && r.chats) || this.chats || [];
+      this.busy = !!(r && r.busy);
+      this.canUndoTurn = !!(r && r.canUndoTurn);
       this.queued = null;
       this.renderQueued();
-      await jdraw.call("chat:clear", this.editor.id);
-      this.chat = { agent: this.agentId, messages: [] };
-      this.busy = false;
-      this.canUndoTurn = false;
-      this.models = this.modelCache[this.agentId] || null;
-      this.effort = this.effortCache[this.agentId] || null;
       this.status = { state: "idle" };
+      const want = this.chat.agent;
+      if (want && want !== this.agentId && this.agents.some((a) => a.id === want && a.installed)) {
+        this.agentId = want;
+        this.models = this.modelCache[want] || null;
+        this.effort = this.effortCache[want] || null;
+      }
+      this.input.value = this.drafts.get(this.chatId) || "";
+      this.autosize();
       this.renderAll();
       this.warm();
     }
 
-    // Events from the main process for this drawing.
+    async openChat(chatId) {
+      if (!chatId || chatId === this.chatId) return;
+      try {
+        const r = await jdraw.call("chat:open", this.editor.id, chatId);
+        this.applyChatResult(r);
+      } catch (err) { toast(err.message, { problem: true }); }
+    }
+
+    async newChat() {
+      try {
+        const r = await jdraw.call("chat:new", this.editor.id);
+        this.applyChatResult(r);
+      } catch (err) { toast(err.message, { problem: true }); }
+    }
+
+    async renameChat() {
+      const body = el(`<input class="input" type="text" maxlength="120" value="${esc(this.chat.title || "")}">`);
+      const title = await UI.openDialog({ title: "Rename chat", body, buttons: [{ label: "Cancel", value: null }, { label: "Rename", primary: true, value: (s) => s.querySelector("input").value }] });
+      if (title === null) return;
+      try {
+        await jdraw.call("chat:rename", this.editor.id, this.chatId, title);
+        this.chat.title = String(title || "").trim() || "New chat";
+      } catch (err) { toast(err.message, { problem: true }); }
+    }
+
+    async deleteChat() {
+      const ok = await UI.openDialog({
+        title: "Delete this chat?",
+        body: `<p>"${esc(this.chat.title || "New chat")}" is removed for good. Your drawing stays as it is.</p>`,
+        buttons: [{ label: "Cancel", value: null }, { label: "Delete", primary: true, danger: true, value: true }],
+      });
+      if (!ok) return;
+      try {
+        const r = await jdraw.call("chat:delete", this.editor.id, this.chatId);
+        this.applyChatResult(r);
+      } catch (err) { toast(err.message, { problem: true }); }
+    }
+
+    async chatsMenu(anchor) {
+      let list = this.chats;
+      try { list = await jdraw.call("chats:list", this.editor.id); this.chats = list; } catch {}
+      const agentName = (id) => (this.agents.find((a) => a.id === id) || {}).name || "";
+      const items = [{ heading: true, label: "Chats in this drawing" }];
+      for (const c of list || []) {
+        items.push({
+          label: c.title || "New chat",
+          desc: [agentName(c.agent), c.messageCount ? c.messageCount + " messages" : "Empty", UI.timeAgo(c.updated)].filter(Boolean).join(" · "),
+          check: c.id === this.chatId,
+          onClick: () => this.openChat(c.id),
+        });
+      }
+      items.push("sep", { label: "New chat", icon: "plus", onClick: () => this.newChat() });
+      if ((this.chat.messages || []).length) {
+        items.push({ label: "Rename chat", icon: "edit", onClick: () => this.renameChat() });
+        items.push({ label: "Delete chat", icon: "trash", danger: true, onClick: () => this.deleteChat() });
+      }
+      showMenu(anchor, items, { above: true, width: 300 });
+    }
+
+    // Events from the main process for this drawing. Events carry the chat
+    // they belong to; another chat's turn keeps running in the background.
     onEvent(ev) {
+      if (ev.chatId && ev.chatId !== this.chatId) return;
       const msgs = this.chat.messages || (this.chat.messages = []);
       const last = msgs[msgs.length - 1];
       const open = last && last.role === "agent" && last.open ? last : null;

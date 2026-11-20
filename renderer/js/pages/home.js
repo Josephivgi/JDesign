@@ -169,9 +169,46 @@ export function renderHome(main) {
       '<button type="submit" class="btn btn-primary" data-create' + (ready ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
       "</div></form>" +
       '<div class="chips">' + IDEAS.map((idea, i) => '<button type="button" class="chip" data-idea="' + i + '" title="' + esc(idea.text.trim()) + (idea.clip ? " (asks you to pick a video)" : "") + '">' + icon(idea.icon, "i-sm") + esc(idea.label) + "</button>").join("") + "</div>" +
-      (projectsFirst ? projectsHtml + '<div class="gallery" data-gallery></div>' : '<div class="gallery" data-gallery></div>' + projectsHtml);
+      (projectsFirst ? projectsHtml + '<div class="gallery" data-gallery></div>' : '<div class="gallery" data-gallery></div>' + projectsHtml) +
+      '<div data-chats></div>';
     paintPins();
     wire();
+  };
+
+  // Chat history across both studios, newest first. The label at the end of
+  // each row says where the chat started: its project or its drawing.
+  const renderChats = async () => {
+    const box = inner.querySelector("[data-chats]");
+    if (!box) return;
+    let video = [];
+    let draw = [];
+    try { video = (await api.editorChats({ workspaceId: store.workspaceId })) || []; } catch {}
+    try { draw = (await api.jdrawChats()) || []; } catch {}
+    const rows = [];
+    const projectName = (id) => ((store.projects || []).find((p) => p.id === id) || {}).name || "A project";
+    const agentName = (harnessId) => ((store.harnesses || []).find((h) => h.id === harnessId) || {}).name || "";
+    for (const c of video) {
+      if (!(c.messageCount > 0) && !c.hasAcp) continue;
+      rows.push({ key: "v" + c.id, title: c.title, sub: [agentName(c.harnessId), timeAgo(c.updatedAt)].filter(Boolean).join(" · "), from: projectName(c.projectId), at: c.updatedAt, ico: "film", open: () => emit("navigate", { page: "editor", params: { projectId: c.projectId, chatId: c.id } }) });
+    }
+    for (const c of draw) {
+      rows.push({ key: "d" + c.id, title: c.title, sub: [c.agentName, timeAgo(c.updated)].filter(Boolean).join(" · "), from: c.drawingName || "A drawing", at: c.updated, ico: "palette", open: async () => { await api.setStudio("draw"); api.jdrawOpenChat({ drawingId: c.drawingId, chatId: c.id }); } });
+    }
+    rows.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+    box.innerHTML = rows.length
+      ? '<div class="section-title">Chats <span class="count">' + rows.length + "</span></div>" +
+        '<div class="chat-rows">' +
+        rows.slice(0, 20).map((r) =>
+          '<button type="button" class="chat-row" data-chat="' + esc(r.key) + '" title="Open ' + esc(r.title) + '">' +
+          '<span class="chat-ico">' + icon(r.ico) + "</span>" +
+          '<span class="chat-main"><span class="chat-t">' + esc(r.title) + "</span>" + (r.sub ? '<span class="chat-s">' + esc(r.sub) + "</span>" : "") + "</span>" +
+          '<span class="chat-from">' + esc(r.from) + "</span></button>",
+        ).join("") + "</div>"
+      : "";
+    box.querySelectorAll("[data-chat]").forEach((btn) => {
+      const row = rows.find((r) => r.key === btn.dataset.chat);
+      if (row) btn.addEventListener("click", () => row.open());
+    });
   };
 
   const paintModel = () => {
@@ -419,6 +456,7 @@ export function renderHome(main) {
   };
 
   paint();
+  void renderChats();
   // Files dropped anywhere on Home are imported and attached to the launcher.
   const pageEl = main.querySelector("[data-home]");
   wireDrop(pageEl, async (paths) => {

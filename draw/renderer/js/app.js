@@ -6,8 +6,10 @@
       if (this.editor) { this.editor.unmount(); this.editor = null; }
       await Home.render(root, this);
     },
-    async openDrawing(id) {
+    async openDrawing(id, chatId) {
       if (this.editor) { this.editor.unmount(); this.editor = null; }
+      // A chat id comes from a history list: the drawing opens on that chat.
+      if (chatId) await jdraw.call("chat:open", id, chatId).catch(() => {});
       const ed = new Editor(root, this, id);
       this.editor = ed;
       try {
@@ -22,6 +24,10 @@
     },
   };
   window.App = app;
+  // JV's Home history can send a chat here: open its drawing on that chat.
+  jdraw.on("open:chat", (msg) => {
+    if (msg && msg.drawingId) app.ready.then(() => app.openDrawing(msg.drawingId, msg.chatId));
+  });
 
   app.ready = (async () => {
     const theme = await jdraw.call("prefs:get", "theme", "system").catch(() => "system");

@@ -65,7 +65,7 @@ function projectRenders(project) {
   return out.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
-export function renderEditor(main, projectId) {
+export function renderEditor(main, projectId, opts) {
   const st = {
     project: null,
     mode: "source",
@@ -1008,6 +1008,8 @@ export function renderEditor(main, projectId) {
     void backfillPosters(assets().filter((a) => !a.missing));
     chat = mountChat($("[data-chat]"), {
       projectId,
+      // A chat id comes from the Home history list: the editor opens on it.
+      chatId: (opts && opts.chatId) || "",
       getProject: () => st.project,
       selectedAssetId: () => (selectedAsset() || {}).id || "",
       onProjectChanged: async () => {

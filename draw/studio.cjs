@@ -5,7 +5,7 @@ const { app, WebContentsView, ipcMain, dialog, shell, clipboard, nativeImage } =
 const CLIP_MARK = "jdraw-items:";
 const path = require("node:path");
 const fs = require("node:fs");
-const { DrawingStore } = require("./lib/store.cjs");
+const { DrawingStore, titleFor } = require("./lib/store.cjs");
 const { createMcpServer } = require("./lib/mcp-server.cjs");
 const { CATALOG, detectAgents, AgentSession, REVIEW_BRIEF } = require("./lib/acp.cjs");
 const SlopCheck = require("./lib/slop-check.cjs");
@@ -31,10 +31,11 @@ let onSmokeExit = (code) => app.exit(code);
 let store = null;
 let mcp = null;
 let agentsCache = null;
-const sessions = new Map(); // docId -> AgentSession
+const sessions = new Map(); // chatId -> AgentSession
 const contexts = new Map(); // docId -> { brush, selection }
 const turnSnapshots = new Map(); // docId -> snapshot before the last AI turn
-const chats = new Map(); // docId -> { agent, model, messages }
+const chats = new Map(); // chatId -> live chat row { id, drawingId, title, agent, model, acpSessionId, messages }
+const turnBusy = new Set(); // docIds with a turn running on any chat
 const renderWaits = new Map();
 let renderSeq = 0;
 const gating = new Set(); // docIds whose turn is in the slop check loop
@@ -52,9 +53,29 @@ function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-function chatFor(docId) {
-  if (!chats.has(docId)) chats.set(docId, store.getChat(docId));
-  return chats.get(docId);
+// The drawing's chat threads live in the store; the map keeps the live copy
+// that streaming events append to. chatId picks one thread; without it the
+// drawing's active chat answers.
+function chatFor(docId, chatId) {
+  const row = chatId ? store.chatById(chatId) : store.getChat(docId);
+  if (!row) return { id: "", drawingId: docId, title: "New chat", agent: null, model: null, acpSessionId: "", messages: [] };
+  let chat = chats.get(row.id);
+  if (!chat) {
+    chat = row;
+    chats.set(chat.id, chat);
+  }
+  return chat;
+}
+
+function sessionOf(docId) {
+  return sessions.get(chatFor(docId).id) || null;
+}
+
+// Any agent session on the drawing that is mid-turn, no matter which chat
+// owns it: two chats must not draw on one canvas at the same time.
+function busySessionOn(docId) {
+  for (const s of sessions.values()) if (s.docId === docId && s.busy) return s;
+  return null;
 }
 
 function viewDrawing(docId, opts) {
@@ -72,11 +93,11 @@ async function agents(refresh) {
   return agentsCache;
 }
 
-async function sessionFor(docId, agentId) {
-  let s = sessions.get(docId);
+async function sessionFor(docId, agentId, chatId) {
+  let s = sessions.get(chatId);
   if (s && s.agent.id !== agentId) {
     s.stop();
-    sessions.delete(docId);
+    sessions.delete(chatId);
     s = null;
   }
   if (s) return s;
@@ -85,16 +106,28 @@ async function sessionFor(docId, agentId) {
   const spec = CATALOG.find((a) => a.id === agentId);
   if (!spec) throw new Error("Unknown agent.");
   if (!found || !found.installed) throw new Error(`${spec.name} is not installed on this PC. Install it with: ${spec.install}`);
+  const chat = chatFor(docId, chatId);
   s = new AgentSession({
     docId,
+    chatId: chat.id,
     agent: Object.assign({}, spec, { path: found.path }),
     workDir: path.join(dataDir, "agent-work", docId),
     mcpEntry: mcp.acpEntry(docId),
+    // A reopened chat reloads its saved ACP session or replays its messages.
+    wantSessionId: chat.acpSessionId,
+    history: chat.messages,
     log: (l) => log(`[${docId}] ${l}`),
-    emit: (ev) => onAgentEvent(docId, ev),
+    emit: (ev) => onAgentEvent(docId, chat.id, ev),
   });
-  sessions.set(docId, s);
+  sessions.set(chat.id, s);
   return s;
+}
+
+// The agent's own session id lands on the chat row so a later open reloads it.
+function persistSessionId(chat, s) {
+  if (!chat || !s || !s.sessionId || chat.acpSessionId === s.sessionId) return;
+  chat.acpSessionId = s.sessionId;
+  store.updateChat(chat.id, { acpSessionId: s.sessionId });
 }
 
 // The artist finish (lib/finish.cjs): color grade, painted edges, paper.
@@ -488,8 +521,8 @@ async function runGate(docId, s, chat) {
     log(`[${docId}] gate put the old version back: ${why}`);
     // The reply just above describes the discarded redraw, not the canvas.
     chat.messages.push({ role: "user", auto: true, text: `JDraw put the earlier version back: ${why}.`, at: Date.now() });
-    store.saveChat(docId, chat);
-    send("agent:event", { docId, type: "chat", chat });
+    store.saveChat(chat);
+    send("agent:event", { docId, chatId: chat.id, type: "chat", chat });
     return true;
   };
   const end = async (r) => {
@@ -617,8 +650,8 @@ async function runGate(docId, s, chat) {
     const note = `${removeOnly ? "Still there after two tries, so leaving it out" : "Redrawing the worst problem"}: ${pick.what}${removed.length ? ` (removed ${removed.length} item${removed.length === 1 ? "" : "s"})` : ""}`;
     chat.messages.push({ role: "user", auto: true, text: note, at: Date.now() });
     chat.messages.push({ role: "agent", agent: s.agent.name, text: "", tools: [], open: true, at: Date.now() });
-    store.saveChat(docId, chat);
-    send("agent:event", { docId, type: "chat", chat });
+    store.saveChat(chat);
+    send("agent:event", { docId, chatId: chat.id, type: "chat", chat });
     if (fixEffort && !raised && !removeOnly) { try { raised = await s.setEffort(fixEffort); } catch (err) { log(`[${docId}] fix effort: ${err.message}`); } }
     const afterDelete = JSON.stringify(store.getDoc(docId).layers);
     leftOut.delete(docId);
@@ -662,9 +695,9 @@ async function runGate(docId, s, chat) {
   }
 }
 
-function onAgentEvent(docId, ev) {
+function onAgentEvent(docId, chatId, ev) {
   if (ev.type === "done" && gating.has(docId)) ev = Object.assign({}, ev, { gating: true });
-  const chat = chatFor(docId);
+  const chat = chatFor(docId, chatId);
   const last = chat.messages[chat.messages.length - 1];
   const agentMsg = last && last.role === "agent" && last.open ? last : null;
   if (agentMsg) {
@@ -682,11 +715,12 @@ function onAgentEvent(docId, ev) {
       if (ev.type === "error") agentMsg.error = ev.message;
       agentMsg.stopReason = ev.stopReason;
       agentMsg.finished = Date.now();
-      store.saveChat(docId, chat);
+      store.saveChat(chat);
     }
   }
   if (ev.type === "status" && ev.state === "ready") {
-    const s = sessions.get(docId);
+    const s = sessions.get(chatId);
+    if (s) persistSessionId(chat, s);
     if (s && ev.models && ev.models.available && ev.models.available.length) {
       const cache = store.getPref("modelCache", {});
       cache[s.agent.id] = ev.models;
@@ -699,7 +733,7 @@ function onAgentEvent(docId, ev) {
     }
   }
   if (ev.type === "error" || ev.type === "status") log(`[${docId}] agent ${ev.type}: ${ev.state || ""} ${ev.message || ""}`);
-  send("agent:event", Object.assign({ docId }, ev));
+  send("agent:event", Object.assign({ docId, chatId }, ev));
 }
 
 const TOOL_LABELS = {
@@ -835,17 +869,16 @@ function registerIpc() {
   handle("drawings:rename", (id, name) => store.rename(id, name));
   handle("drawings:duplicate", (id) => store.duplicate(id));
   handle("drawings:remove", (id) => {
-    const s = sessions.get(id);
-    if (s) { s.stop(); sessions.delete(id); }
-    chats.delete(id);
+    for (const [key, s] of [...sessions]) if (s.docId === id) { s.stop(); sessions.delete(key); }
+    for (const [key, chat] of [...chats]) if (chat.drawingId === id) chats.delete(key);
     store.remove(id);
     return true;
   });
   handle("drawings:open", (id) => {
     const entry = store.load(id);
     const chat = chatFor(id);
-    for (const m of chat.messages) if (m.open && !sessions.get(id)?.busy) m.open = false;
-    return { meta: store.meta(id), doc: entry.doc, canUndo: entry.undo.length > 0, canRedo: entry.redo.length > 0, chat, canUndoTurn: turnSnapshots.has(id), busy: !!sessions.get(id)?.busy };
+    for (const m of chat.messages) if (m.open && !sessions.get(chat.id)?.busy) m.open = false;
+    return { meta: store.meta(id), doc: entry.doc, canUndo: entry.undo.length > 0, canRedo: entry.redo.length > 0, chat, chats: store.chatList(id), canUndoTurn: turnSnapshots.has(id), busy: !!sessions.get(chat.id)?.busy };
   });
   handle("drawings:close", (id) => { store.saveNow(id); return true; });
   handle("drawings:thumb", (id, dataUrl) => { store.setThumb(id, dataUrl); return true; });
@@ -877,18 +910,23 @@ function registerIpc() {
     const text = String(r.text || "").trim();
     if (!text) throw new Error("Type what you want first.");
     store.setPref("agent", r.agentId);
-    const s = await sessionFor(id, r.agentId);
-    if (s.busy || gating.has(id)) throw new Error("The agent is still working. Stop it first or wait.");
+    const chat = chatFor(id);
+    const s = await sessionFor(id, r.agentId, chat.id);
+    if (s.busy || gating.has(id) || busySessionOn(id)) throw new Error("The agent is still working. Stop it first or wait.");
     // The slop gate is on unless turned off in prefs; slash commands skip it.
     const gate = !r.agentCommand && store.getPref("slopGate", true) !== false;
     if (gate) gating.add(id);
+    turnBusy.add(id);
     gateStop.delete(id);
-    const chat = chatFor(id);
     chat.agent = r.agentId;
+    if (!chat.title || chat.title === "New chat") {
+      chat.title = titleFor(r.display || text);
+      store.updateChat(chat.id, { title: chat.title });
+    }
     chat.messages.push({ role: "user", text: r.display || text, at: Date.now() });
     chat.messages.push({ role: "agent", agent: s.agent.name, text: "", tools: [], open: true, at: Date.now() });
-    store.saveChat(id, chat);
-    send("agent:event", { docId: id, type: "chat", chat });
+    store.saveChat(chat);
+    send("agent:event", { docId: id, chatId: chat.id, type: "chat", chat });
     // Undo AI changes goes back to before the last turn that changed the
     // drawing; turns that only talk keep the earlier snapshot.
     const msg = chat.messages[chat.messages.length - 1];
@@ -931,18 +969,20 @@ function registerIpc() {
       } finally {
         try { noteAgentItems(id); } catch (err) { log(`[${id}] agent items: ${err.message}`); }
         gating.delete(id);
+        turnBusy.delete(id);
+        persistSessionId(chat, s);
         msg.seconds = Math.round((Date.now() - t0) / 1000);
         let changed = false;
         try { changed = JSON.stringify(store.getDoc(id)) !== before; } catch {}
         if (changed) { turnSnapshots.set(id, snap); for (const m of chat.messages) delete m.changed; msg.changed = true; }
-        store.saveChat(id, chat);
-        send("agent:event", { docId: id, type: "turn-end", changed, seconds: msg.seconds, canUndoTurn: turnSnapshots.has(id), check: lastChecks.get(id) || null });
+        store.saveChat(chat);
+        send("agent:event", { docId: id, chatId: chat.id, type: "turn-end", changed, seconds: msg.seconds, canUndoTurn: turnSnapshots.has(id), check: lastChecks.get(id) || null });
       }
     })();
     return true;
   });
   handle("agent:cancel", (id) => {
-    const s = sessions.get(id);
+    const s = busySessionOn(id) || sessionOf(id);
     if (s) s.cancel();
     if (gating.has(id)) gateStop.add(id);
     const rv = reviewers.get(id);
@@ -952,9 +992,10 @@ function registerIpc() {
   handle("slop:check", (id) => checkDrawing(id));
   handle("slop:result", (id) => lastChecks.get(id) || null);
   handle("slop:finish", (id, opts) => finishDrawing(id, opts));
-  handle("agent:stop", (id) => { const s = sessions.get(id); if (s) { s.stop(); sessions.delete(id); } return true; });
+  handle("agent:stop", (id) => { const s = sessionOf(id); if (s) { s.stop(); sessions.delete(s.chatId); } return true; });
   handle("agent:start", async (id, agentId) => {
-    const s = await sessionFor(id, agentId);
+    const chat = chatFor(id);
+    const s = await sessionFor(id, agentId, chat.id);
     store.setPref("agent", agentId);
     await s.start();
     // Apply the saved model choice right away so the first turn uses it.
@@ -972,7 +1013,7 @@ function registerIpc() {
     const prefs = store.getPref("efforts", {});
     prefs[agentId] = effort;
     store.setPref("efforts", prefs);
-    const s = sessions.get(id);
+    const s = sessionOf(id);
     if (s && s.agent.id === agentId && s.client && !s.busy) await s.setEffort(effort);
     return true;
   });
@@ -980,7 +1021,7 @@ function registerIpc() {
     const prefs = store.getPref("models", {});
     prefs[agentId] = model;
     store.setPref("models", prefs);
-    const s = sessions.get(id);
+    const s = sessionOf(id);
     if (s && s.agent.id === agentId && s.client && !s.busy) await s.setModel(model);
     return true;
   });
@@ -991,17 +1032,70 @@ function registerIpc() {
     turnSnapshots.delete(id);
     const chat = chatFor(id);
     for (const m of chat.messages) delete m.changed;
-    store.saveChat(id, chat);
+    store.saveChat(chat);
     return true;
   });
-  handle("chat:clear", (id) => {
-    const s = sessions.get(id);
-    if (s) { s.stop(); sessions.delete(id); }
-    const chat = { agent: chatFor(id).agent, model: null, messages: [] };
-    chats.set(id, chat);
-    store.saveChat(id, chat);
-    turnSnapshots.delete(id);
+
+  // ---- chat threads
+  // A drawing keeps every chat it ever had. "New chat" starts a fresh thread
+  // and the old one stays in history; opening an old chat puts its transcript
+  // back and reloads the agent session it used.
+  handle("chats:list", (id) => {
+    const activeId = chatFor(id).id;
+    return store.chatList(id).map((c) => Object.assign({}, c, { active: c.id === activeId }));
+  });
+  // Every chat across every drawing, for the history lists on Home.
+  handle("chats:all", () =>
+    store.allChats().map((c) => Object.assign({}, c, { agentName: (CATALOG.find((a) => a.id === c.agent) || {}).name || c.agent || "" })),
+  );
+  const openChat = (id, chatId) => {
+    const chat = chatFor(id, chatId);
+    if (!chat.id) throw new Error("That chat no longer exists.");
+    if (chat.drawingId !== id) throw new Error("That chat is not in this drawing.");
+    store.setActiveChat(id, chat.id);
+    for (const m of chat.messages) if (m.open && !sessions.get(chat.id)?.busy) m.open = false;
+    return { chat, chats: store.chatList(id), busy: !!sessions.get(chat.id)?.busy, canUndoTurn: turnSnapshots.has(id) };
+  };
+  handle("chat:open", (id, chatId) => openChat(id, chatId));
+  handle("chat:new", (id) => {
+    // An untouched chat is already a fresh start; do not stack empty threads.
+    const active = chatFor(id);
+    if (active.id && !active.messages.length) return openChat(id, active.id);
+    const chat = store.createChat(id, {});
+    chats.set(chat.id, chat);
+    return { chat, chats: store.chatList(id), busy: false, canUndoTurn: turnSnapshots.has(id) };
+  });
+  handle("chat:rename", (id, chatId, title) => {
+    const chat = chatFor(id, chatId);
+    if (chat.drawingId !== id || !chat.id) throw new Error("That chat is not in this drawing.");
+    store.updateChat(chatId, { title });
+    chat.title = String(title || "").trim().slice(0, 120) || "New chat";
     return true;
+  });
+  handle("chat:delete", (id, chatId) => {
+    const chat = chatFor(id, chatId);
+    if (chat.drawingId !== id || !chat.id) throw new Error("That chat is not in this drawing.");
+    const s = sessions.get(chatId);
+    if (s) { s.stop(); sessions.delete(chatId); }
+    chats.delete(chatId);
+    store.deleteChat(chatId);
+    // The chat that takes its place (the newest left, or a fresh empty one).
+    return openChat(id, chatFor(id).id);
+  });
+  // JV's Home list sends the chat to open through here: it reaches the Draw
+  // view, which opens the drawing on that chat.
+  handle("jdraw-open-chat", ({ drawingId, chatId }) => {
+    store.setActiveChat(drawingId, chatId);
+    send("open:chat", { drawingId, chatId });
+    return true;
+  });
+  // Kept for callers of the old single-chat wipe: now it keeps the old chat
+  // and starts a fresh thread.
+  handle("chat:clear", (id) => {
+    const chat = store.createChat(id, {});
+    chats.set(chat.id, chat);
+    turnSnapshots.delete(id);
+    return { chat, chats: store.chatList(id), busy: false, canUndoTurn: turnSnapshots.has(id) };
   });
 
   handle("export:save", async (name, dataUrl, ext) => {

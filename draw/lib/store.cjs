@@ -22,15 +22,25 @@ class DrawingStore {
         created INTEGER NOT NULL,
         updated INTEGER NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS chats (
-        drawing_id TEXT PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS chat_threads (
+        id TEXT PRIMARY KEY,
+        drawing_id TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT 'New chat',
         agent TEXT,
         model TEXT,
-        messages TEXT NOT NULL,
+        acp_session_id TEXT,
+        messages TEXT NOT NULL DEFAULT '[]',
+        created INTEGER NOT NULL,
         updated INTEGER NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS chat_threads_drawing ON chat_threads(drawing_id, updated DESC);
       CREATE TABLE IF NOT EXISTS prefs (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     `);
+    if (!this.db.prepare("PRAGMA table_info(drawings)").all().some((c) => c.name === "active_chat_id")) {
+      // The chat a drawing shows when it opens; one row in chat_threads.
+      this.db.exec("ALTER TABLE drawings ADD COLUMN active_chat_id TEXT");
+    }
+    this.migrateChats();
     this.open = new Map(); // id -> { doc, undo: [], redo: [], dirty, timer }
     this.listeners = new Set();
   }
@@ -84,7 +94,7 @@ class DrawingStore {
   remove(id) {
     this.close(id);
     this.db.prepare("DELETE FROM drawings WHERE id = ?").run(id);
-    this.db.prepare("DELETE FROM chats WHERE drawing_id = ?").run(id);
+    this.db.prepare("DELETE FROM chat_threads WHERE drawing_id = ?").run(id);
   }
 
   duplicate(id) {
@@ -200,20 +210,138 @@ class DrawingStore {
   }
 
   // ---- chats
-  getChat(id) {
-    const row = this.db.prepare("SELECT agent, model, messages FROM chats WHERE drawing_id = ?").get(id);
-    if (!row) return { agent: null, model: null, messages: [] };
-    let messages = [];
-    try { messages = JSON.parse(row.messages); } catch {}
-    return { agent: row.agent, model: row.model, messages };
+  // A drawing keeps a list of chat threads; one is active. Old chats stay in
+  // history and reopen with their transcript (and their agent session when the
+  // agent still has it).
+  migrateChats() {
+    const hasLegacy = this.db.prepare("SELECT 1 AS yes FROM sqlite_master WHERE type='table' AND name='chats'").get();
+    if (!hasLegacy) return;
+    const ins = this.db.prepare(
+      "INSERT INTO chat_threads (id, drawing_id, title, agent, model, messages, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    const act = this.db.prepare("UPDATE drawings SET active_chat_id = ? WHERE id = ? AND (active_chat_id IS NULL OR active_chat_id = '')");
+    for (const row of this.db.prepare("SELECT * FROM chats").all()) {
+      const id = G.uid("c");
+      let title = "New chat";
+      try {
+        const first = (JSON.parse(row.messages || "[]") || []).find((m) => m && m.role === "user" && m.text);
+        if (first) title = titleFor(first.text);
+      } catch {}
+      ins.run(id, row.drawing_id, title, row.agent || null, row.model || null, row.messages || "[]", row.updated, row.updated);
+      act.run(id, row.drawing_id);
+    }
+    this.db.exec("DROP TABLE chats");
   }
 
-  saveChat(id, chat) {
-    const messages = JSON.stringify((chat.messages || []).slice(-200));
-    this.db
-      .prepare("INSERT INTO chats (drawing_id, agent, model, messages, updated) VALUES (?, ?, ?, ?, ?) ON CONFLICT(drawing_id) DO UPDATE SET agent = excluded.agent, model = excluded.model, messages = excluded.messages, updated = excluded.updated")
-      .run(id, chat.agent || null, chat.model || null, messages, Date.now());
+  mapChat(row) {
+    if (!row) return null;
+    let messages = [];
+    try { messages = JSON.parse(row.messages || "[]") || []; } catch {}
+    return {
+      id: row.id,
+      drawingId: row.drawing_id,
+      title: row.title || "New chat",
+      agent: row.agent || null,
+      model: row.model || null,
+      acpSessionId: row.acp_session_id || "",
+      messages,
+      created: row.created,
+      updated: row.updated,
+    };
   }
+
+  chatById(chatId) {
+    return this.mapChat(this.db.prepare("SELECT * FROM chat_threads WHERE id = ?").get(String(chatId || "")));
+  }
+
+  // The drawing's active chat. A drawing always has one, so the panel never
+  // shows a blank state: the first open creates it.
+  getChat(drawingId) {
+    const row = this.db.prepare("SELECT active_chat_id FROM drawings WHERE id = ?").get(drawingId);
+    let chat = row && row.active_chat_id ? this.chatById(row.active_chat_id) : null;
+    if (!chat) {
+      chat = this.mapChat(this.db.prepare("SELECT * FROM chat_threads WHERE drawing_id = ? ORDER BY updated DESC LIMIT 1").get(drawingId));
+    }
+    if (!chat) chat = this.createChat(drawingId, {});
+    return chat;
+  }
+
+  // Rows for the chat menu, without the message blobs.
+  chatList(drawingId) {
+    return this.db
+      .prepare("SELECT id, title, agent, updated, json_array_length(messages) AS messageCount FROM chat_threads WHERE drawing_id = ? ORDER BY updated DESC, id DESC")
+      .all(drawingId);
+  }
+
+  // Every chat across drawings, for the history lists on both Home pages.
+  allChats() {
+    return this.db
+      .prepare(
+        "SELECT c.id, c.drawing_id AS drawingId, c.title, c.agent, c.updated, json_array_length(c.messages) AS messageCount, d.name AS drawingName " +
+          "FROM chat_threads c JOIN drawings d ON d.id = c.drawing_id WHERE c.messages != '[]' ORDER BY c.updated DESC, c.id DESC",
+      )
+      .all();
+  }
+
+  createChat(drawingId, opts) {
+    const o = opts || {};
+    const id = G.uid("c");
+    const now = Date.now();
+    const title = String(o.title || "New chat").trim() || "New chat";
+    this.db.prepare("BEGIN").run();
+    try {
+      this.db
+        .prepare("INSERT INTO chat_threads (id, drawing_id, title, agent, model, messages, created, updated) VALUES (?, ?, ?, ?, ?, '[]', ?, ?)")
+        .run(id, drawingId, title, o.agent || null, o.model || null, now, now);
+      this.db.prepare("UPDATE drawings SET active_chat_id = ? WHERE id = ?").run(id, drawingId);
+      this.db.prepare("COMMIT").run();
+    } catch (err) {
+      this.db.prepare("ROLLBACK").run();
+      throw err;
+    }
+    return this.chatById(id);
+  }
+
+  updateChat(chatId, patch) {
+    const o = patch || {};
+    const sets = [];
+    const values = [];
+    if (o.title !== undefined) { sets.push("title = ?"); values.push(String(o.title || "").trim().slice(0, 120) || "New chat"); }
+    if (o.agent !== undefined) { sets.push("agent = ?"); values.push(o.agent || null); }
+    if (o.model !== undefined) { sets.push("model = ?"); values.push(o.model || null); }
+    if (o.acpSessionId !== undefined) { sets.push("acp_session_id = ?"); values.push(o.acpSessionId || ""); }
+    if (!sets.length) return;
+    this.db.prepare("UPDATE chat_threads SET " + sets.join(", ") + " WHERE id = ?").run(...values, chatId);
+  }
+
+  setActiveChat(drawingId, chatId) {
+    this.db.prepare("UPDATE drawings SET active_chat_id = ? WHERE id = ?").run(chatId, drawingId);
+  }
+
+  deleteChat(chatId) {
+    const row = this.db.prepare("SELECT drawing_id FROM chat_threads WHERE id = ?").get(chatId);
+    if (!row) return;
+    this.db.prepare("DELETE FROM chat_threads WHERE id = ?").run(chatId);
+    const active = this.db.prepare("SELECT active_chat_id FROM drawings WHERE id = ?").get(row.drawing_id);
+    if (active && active.active_chat_id === chatId) {
+      const next = this.db.prepare("SELECT id FROM chat_threads WHERE drawing_id = ? ORDER BY updated DESC LIMIT 1").get(row.drawing_id);
+      this.db.prepare("UPDATE drawings SET active_chat_id = ? WHERE id = ?").run(next ? next.id : null, row.drawing_id);
+    }
+  }
+
+  saveChat(chat) {
+    const messages = JSON.stringify((chat.messages || []).slice(-200));
+    this.db.prepare("UPDATE chat_threads SET agent = ?, model = ?, messages = ?, updated = ? WHERE id = ?")
+      .run(chat.agent || null, chat.model || null, messages, Date.now(), chat.id);
+  }
+}
+
+// The first user line becomes the chat's name, trimmed to a short clause.
+function titleFor(text) {
+  const line = String(text || "").split("\n")[0].replace(/\s+/g, " ").trim().replace(/^\/[a-z0-9-]+\s*/i, "");
+  if (!line) return "New chat";
+  const cut = line.slice(0, 60);
+  return (cut.length < line.length ? cut.replace(/[\s,:;.!\-]+$/, "") + "..." : cut).replace(/^./, (c) => c.toUpperCase());
 }
 
 function layerOf(doc, layerId, create) {
@@ -539,4 +667,4 @@ function applyOp(doc, op) {
   }
 }
 
-module.exports = { DrawingStore, applyOp };
+module.exports = { DrawingStore, applyOp, titleFor };

@@ -36,6 +36,8 @@
       <div class="sizes"></div>
       <div class="section-head"><h2>Your drawings</h2><span class="count"></span><input class="input search" type="search" placeholder="Search drawings" aria-label="Search drawings"></div>
       <div class="gallery-wrap"></div>
+      <div class="section-head chats-head" hidden><h2>Chats</h2><span class="hint">Pick up an old conversation</span></div>
+      <div class="chat-rows"></div>
     </div></main>`);
     const mode = document.documentElement.dataset.mode || "system";
     const themeBtns = [...home.querySelectorAll('.seg[aria-label="Theme"] button')];
@@ -113,6 +115,27 @@
     };
     search.addEventListener("input", draw);
     draw();
+
+    // Chat history: every conversation across the drawings, newest first.
+    // The label at the end says which drawing the chat started in.
+    try {
+      const chats = await jdraw.call("chats:all");
+      const rows = home.querySelector(".chat-rows");
+      const head = home.querySelector(".chats-head");
+      if (chats.length) {
+        head.hidden = false;
+        for (const c of chats) {
+          const sub = [c.agentName, c.messageCount ? c.messageCount + " messages" : "", timeAgo(c.updated)].filter(Boolean).join(" · ");
+          const row = el(`<button type="button" class="chat-row" aria-label="Open chat ${esc(c.title)}">
+            <span class="chat-ico">${icon("chat")}</span>
+            <span class="chat-main"><span class="chat-t">${esc(c.title)}</span><span class="chat-s">${esc(sub)}</span></span>
+            <span class="chat-from" title="Started in ${esc(c.drawingName)}">${icon("pencil")}${esc(c.drawingName)}</span>
+          </button>`);
+          row.addEventListener("click", () => app.openDrawing(c.drawingId, c.id));
+          rows.appendChild(row);
+        }
+      }
+    } catch {}
 
     const line = home.querySelector(".ai-line");
     try {

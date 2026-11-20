@@ -1243,7 +1243,7 @@ export function mountChat(root, ctx) {
     } catch {
       active = null;
     }
-    const id = (active && active.chat && active.chat.id) || (st.chats[0] && st.chats[0].id) || "";
+    const id = ctx.chatId || (active && active.chat && active.chat.id) || (st.chats[0] && st.chats[0].id) || "";
     await openChat(id);
     if (st.chat) {
       const live = getSession(scope());

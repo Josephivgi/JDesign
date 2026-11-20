@@ -84,7 +84,7 @@
       this.renderDock();
       this.layers.update();
       this.renderTop();
-      await this.assistant.load(data.chat, data.busy, data.canUndoTurn);
+      await this.assistant.load(data.chat, data.busy, data.canUndoTurn, data.chats);
       if (data.busy) this.setBusy(true, "Assistant");
       this.pushContext();
       this.subscribe();

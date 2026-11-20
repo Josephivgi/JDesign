@@ -212,12 +212,32 @@ const REVIEW_BRIEF = [
   "box is [x, y, width, height] in canvas pixels, not image pixels: view_drawing tells you the canvas size and the image size; multiply image positions by canvas width / image width (and add the crop's x and y when you cropped). ids are the get_drawing item ids that make up that object. severity: 3 for what a viewer sees first (the main subject, a stock shape that reads as generated), 2 for clear tells elsewhere, 1 for small details. When an issue is one that JDraw's measuring script flagged, add \"rule\" with the rule id given for it.",
 ].join("\n");
 
-// One chat per drawing.
+// A restored chat's own context goes to the agent once, inside the first
+// prompt, when the agent could not reload its saved ACP session.
+const HISTORY_PREFIX_MAX = 8000;
+function historyPrefix(messages) {
+  const lines = [];
+  for (const m of (Array.isArray(messages) ? messages : []).slice(-40)) {
+    const text = String((m && m.text) || "").replace(/\s+/g, " ").trim().slice(0, 600);
+    if (!text || m.error) continue;
+    if (m.role === "user" && !m.auto) lines.push("User: " + text);
+    else if (m.role === "agent") lines.push("Assistant: " + text);
+  }
+  if (!lines.length) return "";
+  let body = lines.join("\n");
+  if (body.length > HISTORY_PREFIX_MAX) body = body.slice(-HISTORY_PREFIX_MAX);
+  return "This chat is a restored session whose earlier agent context could not be loaded; use the prior conversation below as context and continue from it.\n" + body;
+}
+
+// One agent session per chat thread.
 class AgentSession {
   // brief: text sent before the first prompt (BRIEF by default).
   // allowTools: jdraw tool names this session may use (all of them when unset).
-  constructor({ docId, agent, workDir, mcpEntry, emit, log, brief, allowTools }) {
+  // wantSessionId/history: the chat's saved ACP session id and messages, so a
+  // reopened chat reloads its own agent context (session/load) or replays it.
+  constructor({ docId, chatId, agent, workDir, mcpEntry, emit, log, brief, allowTools, wantSessionId, history }) {
     this.docId = docId;
+    this.chatId = chatId || "";
     this.brief = brief || BRIEF;
     this.allowTools = allowTools || null;
     this.agent = agent; // { id, name, command, args, env, path }
@@ -225,6 +245,10 @@ class AgentSession {
     this.mcpEntry = mcpEntry;
     this.emit = emit;
     this.log = log || (() => {});
+    this.wantSessionId = String(wantSessionId || "");
+    this.history = history || [];
+    this.resumed = false;
+    this.replaying = false;
     this.client = null;
     this.sessionId = null;
     this.models = null; // { available: [{id, name}], current }
@@ -261,8 +285,29 @@ class AgentSession {
       if (!init || init.protocolVersion !== 1) throw new Error(`${this.agent.name} speaks an ACP version JDraw does not support.`);
       const caps = (init.agentCapabilities && init.agentCapabilities.mcpCapabilities) || {};
       if (!caps.http) this.log(`${this.agent.id} does not report MCP over HTTP; trying anyway`);
-      const created = await this._retryWarmup(() => client.request("session/new", { cwd: this.workDir, mcpServers: [this.mcpEntry] }, 120000));
-      this.sessionId = created.sessionId;
+      const canLoad = !!(init.agentCapabilities && init.agentCapabilities.loadSession);
+      let created = null;
+      if (this.wantSessionId && canLoad) {
+        // The replayed history streams in as session/update events; they are
+        // the same conversation already on screen, so they stay out of it.
+        this.replaying = true;
+        try {
+          created = await this._retryWarmup(() => client.request("session/load", { sessionId: this.wantSessionId, cwd: this.workDir, mcpServers: [this.mcpEntry] }, 120000));
+          this.sessionId = this.wantSessionId;
+          this.resumed = true;
+          // The loaded session already holds the brief from its first turn.
+          this.briefed = true;
+        } catch (err) {
+          this.log(`${this.agent.id} could not load session ${this.wantSessionId}: ${err.message}`);
+          created = null;
+        } finally {
+          this.replaying = false;
+        }
+      }
+      if (!created) {
+        created = await this._retryWarmup(() => client.request("session/new", { cwd: this.workDir, mcpServers: [this.mcpEntry] }, 120000));
+        this.sessionId = created.sessionId;
+      }
       this._readModels(created);
       this.emit(Object.assign({ type: "status", state: "ready" }, this.choices()));
       return true;
@@ -343,6 +388,9 @@ class AgentSession {
     if (this.sessionId && params.sessionId && params.sessionId !== this.sessionId) return;
     const u = params.update || {};
     const kind = u.sessionUpdate;
+    // A session/load replays the old transcript; it is already drawn from the
+    // saved chat, so only the state updates get through while it streams.
+    if (this.replaying && /chunk|tool_call|plan/.test(String(kind || ""))) return;
     if (kind === "agent_message_chunk" && u.content && u.content.type === "text") this.emit({ type: "text", text: u.content.text });
     else if (kind === "agent_thought_chunk" && u.content && u.content.type === "text") this.emit({ type: "thought", text: u.content.text });
     else if (kind === "tool_call" || kind === "tool_call_update") {
@@ -403,7 +451,12 @@ class AgentSession {
         blocks = [{ type: "text", text }];
       } else {
         let full = text;
-        if (!this.briefed) full = this.brief + "\n\n---\n" + (this.brief === BRIEF ? "The person says:\n" : "") + text;
+        if (!this.briefed) {
+          // A fresh session on an old chat could not be reloaded; it gets the
+          // earlier conversation as text so the agent still knows what went on.
+          const hist = historyPrefix(this.history);
+          full = this.brief + "\n\n" + (hist ? hist + "\n\n" : "") + "---\n" + (this.brief === BRIEF ? "The person says:\n" : "") + text;
+        }
         if (ctx) full += "\n\n" + ctx;
         blocks = [{ type: "text", text: full }];
         this.briefed = true;
@@ -440,4 +493,4 @@ function friendly(err, agent) {
   return m;
 }
 
-module.exports = { CATALOG, detectAgents, AcpClient, AgentSession, BRIEF, REVIEW_BRIEF };
+module.exports = { CATALOG, detectAgents, AcpClient, AgentSession, BRIEF, REVIEW_BRIEF, historyPrefix };

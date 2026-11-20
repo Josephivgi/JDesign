@@ -309,6 +309,20 @@ body:has(.stage) .toasts { left: 72px; top: calc(var(--top) + var(--s-3)); botto
 .art-card .meta .w { color: var(--text-3); font-size: var(--fs-xs); margin-left: auto; white-space: nowrap; }
 .art-card .more { position: absolute; top: var(--s-2); right: var(--s-2); opacity: 0; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow-sm); }
 .art-card:hover .more, .art-card:focus-within .more, .art-card .more:focus-visible { opacity: 1; }
+.chats-head { margin-top: var(--s-7); }
+.chat-rows { display: flex; flex-direction: column; gap: 2px; }
+.chat-row {
+  display: flex; align-items: center; gap: var(--s-3); padding: 8px var(--s-3); border: 0; border-radius: var(--r-2);
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.chat-row:hover { background: var(--surface-2); }
+.chat-ico { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-2); background: var(--surface-3); color: var(--text-2); }
+.chat-ico svg.i { width: 15px; height: 15px; }
+.chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.chat-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-s { font-size: var(--fs-xs); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-from { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 34%; padding: 2px var(--s-2); border-radius: var(--r-pill); border: 1px solid var(--line); color: var(--text-2); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-from svg.i { width: 11px; height: 11px; flex: none; color: var(--text-3); }
 .empty { display: grid; justify-items: center; gap: var(--s-1); border: 1px dashed var(--line-strong); border-radius: var(--r-3); background: var(--surface-2); padding: 44px var(--s-6); text-align: center; color: var(--text-2); }
 .empty > svg.i { width: 26px; height: 26px; color: var(--text-3); margin-bottom: var(--s-1); }
 .empty strong { display: block; color: var(--text); font-size: var(--fs-lg); font-weight: 600; }

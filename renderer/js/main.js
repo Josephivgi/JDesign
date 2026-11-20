@@ -17,7 +17,7 @@ let teardown = null;
 
 export function navigate(page, params = {}) {
   const next = Object.assign({ page }, params);
-  const same = store.route.page === next.page && store.route.projectId === next.projectId && store.route.section === next.section && store.route.plugin === next.plugin && store.route.pageId === next.pageId;
+  const same = store.route.page === next.page && store.route.projectId === next.projectId && store.route.section === next.section && store.route.plugin === next.plugin && store.route.pageId === next.pageId && store.route.chatId === next.chatId;
   store.route = next;
   if (same && page !== "settings") return;
   closeMenu();
@@ -72,7 +72,7 @@ function paint() {
   root.innerHTML = railMarkup() + '<main class="main" id="main"></main>';
   const main = document.getElementById("main");
   const page = store.route.page;
-  if (page === "editor") teardown = renderEditor(main, store.route.projectId);
+  if (page === "editor") teardown = renderEditor(main, store.route.projectId, { chatId: store.route.chatId });
   else if (page === "library") teardown = renderLibrary(main);
   else if (page === "agents") teardown = renderAgents(main);
   else if (page === "settings") teardown = renderSettings(main, store.route.section);
