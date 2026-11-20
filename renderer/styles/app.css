@@ -703,7 +703,7 @@ html[data-density="compact"] [data-lib] .empty.is-dropzone { padding: 36px 20px;
 .panel-empty strong { color: var(--text); font-weight: 600; }
 .panel-empty .btn { margin-top: var(--s-1); }
 
-.stage-col { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; container-type: inline-size; overflow: hidden; }
+.stage-col { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto auto; container-type: inline-size; overflow: hidden; }
 .stage-wrap { position: relative; min-width: 0; min-height: 0; display: grid; place-items: center; padding: 18px; background: var(--bg-0); }
 .stage-tabs { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2; }
 .stage {
@@ -1545,7 +1545,7 @@ html[data-density="compact"] .el-history-wrap > summary { min-height: 36px; }
 
 
 /* Artifact tabs: Video plus one tab per drawing on the project stage */
-.art-tabs { display: flex; align-items: center; gap: 6px; padding: 0 0 8px; flex-wrap: wrap; }
+.art-tabs { display: flex; align-items: center; gap: 6px; padding: 8px 12px; flex-wrap: wrap; }
 .art-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-1); color: var(--text-2); font: var(--fs-sm)/1.3 var(--font); cursor: pointer; }
 .art-tab:hover { background: var(--bg-2); color: var(--text); }
 .art-tab.is-on { color: var(--text); border-color: var(--accent); background: var(--bg-2); }

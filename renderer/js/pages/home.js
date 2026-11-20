@@ -28,7 +28,13 @@ const IDEAS = [
 ];
 
 // What the launcher holds survives a trip to another page.
-const draft = { text: "", pins: [], ratio: "16/9", harnessId: "", picked: false, modelId: "", modelFor: "" };
+const KINDS = [
+  { id: "video", label: "Video", sub: "The agent edits or builds a video" },
+  { id: "draw", label: "Draw", sub: "The agent draws" },
+  { id: "video-none", label: "Video, no AI", sub: "Start an empty video, ask nothing" },
+  { id: "draw-none", label: "Draw, no AI", sub: "Start a blank drawing, ask nothing" },
+];
+const draft = { kind: "video", text: "", pins: [], ratio: "16/9", harnessId: "", picked: false, modelId: "", modelFor: "" };
 // Project list view state, kept across page visits.
 const list = { query: "", sort: "recent" };
 const SEARCH_AT = 6;
@@ -163,12 +169,13 @@ export function renderHome(main) {
       '<button type="button" class="icon-btn" data-attach title="Attach media from your library (optional)" aria-label="Attach media">' + icon("paperclip") + "</button>" +
       '<button type="button" class="icon-btn" data-slash-open title="Workflows (type /)" aria-label="Workflows">' + icon("slash") + "</button>" +
       '<button type="button" class="icon-btn mic-btn" data-mic aria-label="Talk instead of typing"></button>' +
+      '<button type="button" class="picker" data-kind title="What to start">' + icon("sparkles", "i-sm") + "<span>" + esc((KINDS.find((k) => k.id === draft.kind) || KINDS[0]).label) + "</span>" + icon("chevDown", "i-sm chev") + "</button>" +
       '<button type="button" class="picker" data-ratio title="Frame">' + icon("ratio", "i-sm") + "<span>" + esc(ratio.label) + "</span>" + icon("chevDown", "i-sm chev") + "</button>" +
       agentPickerButton(draft.harnessId, "data-agent") +
       '<span data-home-model>' + (draft.harnessId ? modelPickerButton(draft.harnessId, draft.modelId, null, "data-model") : "") + "</span>" +
       '<span class="grow"></span>' +
       '<button type="button" class="btn btn-ghost" data-blank title="Start an empty project and add clips yourself">' + icon("plus", "i-sm") + "<span>Blank project</span></button>" +
-      '<button type="submit" class="btn btn-primary" data-create' + (ready ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
+      '<button type="submit" class="btn btn-primary" data-create' + (ready || /none$/.test(draft.kind) ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
       "</div></form>" +
       '<div class="chips">' + IDEAS.map((idea, i) => '<button type="button" class="chip" data-idea="' + i + '" title="' + esc(idea.text.trim()) + (idea.clip ? " (asks you to pick a video)" : "") + '">' + icon(idea.icon, "i-sm") + esc(idea.label) + "</button>").join("") + "</div>" +
       (projectsFirst ? projectsHtml + '<div class="gallery" data-gallery></div>' : '<div class="gallery" data-gallery></div>' + projectsHtml) +
@@ -358,12 +365,20 @@ export function renderHome(main) {
     try {
       // A command typed without opening the menu still needs its label for the name.
       if (text.startsWith("/")) await fetchSlashCommands({ harnessId: draft.harnessId });
-      const project = await api.aiProjectCreate({ name: projectName(text, draft.harnessId), aspectRatio: draft.ratio, assetIds: draft.pins.slice() });
-      store.pendingLaunch = text ? { projectId: project.id, text, harnessId: draft.harnessId, modelId: draft.modelId } : null;
+      const drawing = draft.kind === "draw" || draft.kind === "draw-none";
+      const noAi = draft.kind === "video-none" || draft.kind === "draw-none";
+      const project = await api.aiProjectCreate({ name: noAi && !text ? untitledName() : projectName(text, draft.harnessId), aspectRatio: draft.ratio, assetIds: draft.pins.slice() });
+      // No AI: the project just starts. Nothing is sent to an agent.
+      store.pendingLaunch = text && !noAi ? { projectId: project.id, text, harnessId: draft.harnessId, modelId: draft.modelId } : null;
+      let drawingId = "";
+      if (drawing) {
+        const d = await api.jdrawDrawingCreate({ projectId: project.id, name: "Drawing 1" }).catch(() => null);
+        if (d && d.id) drawingId = d.id;
+      }
       draft.text = "";
       draft.pins = [];
       await refreshProjects();
-      emit("navigate", { page: "editor", params: { projectId: project.id } });
+      emit("navigate", { page: "editor", params: drawingId ? { projectId: project.id, drawingId } : { projectId: project.id } });
     } catch (error) {
       toast(errorText(error), true);
       if (btn) btn.disabled = false;
@@ -423,6 +438,9 @@ export function renderHome(main) {
       if (!x) return;
       draft.pins = draft.pins.filter((id) => id !== x.dataset.unpin);
       paintPins();
+    });
+    inner.querySelector("[data-kind]").addEventListener("click", (event) => {
+      showMenu(event.currentTarget, KINDS.map((k) => ({ label: k.label, sub: k.sub, checked: k.id === draft.kind, onSelect: () => { draft.kind = k.id; paint(); } })), { width: 260 });
     });
     inner.querySelector("[data-ratio]").addEventListener("click", (event) => {
       showMenu(event.currentTarget, RATIOS.map((r) => ({ label: r.label, sub: r.sub, checked: r.id === draft.ratio, onSelect: () => { draft.ratio = r.id; paint(); } })), { width: 220 });
