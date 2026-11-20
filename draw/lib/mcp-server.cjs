@@ -77,6 +77,24 @@ function strokeShape(points) {
 }
 const finalRefused = new Set(); // objects already given their one last-try refusal (slabs, ribbon swells)
 
+// Words on the canvas are the strongest tell: a generated slogan or an em
+// dash lands unchecked unless the string is tested. Returns what gave it
+// away, or null. Runs in every lint mode, icons and logos included.
+function slopText(t) {
+  const hit = t.match(/\b(delve|tapestry|realm|seamless|elevate|unlock|unleash|empower|leverage|robust|streamline|harness|testament|pivotal|vibrant|crucial|game[-\s]?changer|cutting[-\s]?edge|next[-\s]?level|revolutionary|journey|ecosystem|stunning|breathtaking|masterpiece)\b/i)
+    || t.match(/(dive in|ready to|get started|learn more|level up|imagine a world|not just\b.{0,40}\bbut\b|it's not\b.{0,40}\bit's\b|more than just)/i)
+    || t.match(/—|--|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u);
+  const ws = t.trim().split(/\s+/);
+  const titled = ws.length >= 4 && ws.every((w) => /^["'(\[]*[A-Z]/.test(w)) && ws.some((w) => /[a-z]/.test(w));
+  return hit ? `"${hit[0]}"` : titled ? "Title Case on every word" : null;
+}
+const TEXT_FIX = "write the shortest plain version in sentence case, only the words the person gave or real labels";
+// Which rule set a drawing gets this turn. The host says: "full" (scenery
+// and everything else), "mark" (an icon or a logo was asked for), "clean"
+// (another clean look: a diagram, pixel art, flat vector) or "off".
+const lintModeOf = (host, docId) => (host.lintMode ? host.lintMode(docId) : !host.lintOn || host.lintOn(docId) ? "full" : "off");
+const askOf = (host, docId) => (host.turnPrompt ? String(host.turnPrompt(docId) || "") : "");
+
 const SERVER_NAME = "jdraw";
 const PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -417,7 +435,47 @@ function createMcpServer(host) {
         // Native shapes get the same primitive checks as draw_svg, so the
         // lint cannot be sidestepped by switching tools.
         let items = a.items;
-        if (!host.lintOn || host.lintOn(docId)) {
+        const drawMode = lintModeOf(host, docId);
+        let drawNote = null;
+        if (drawMode === "mark" || drawMode === "clean") {
+          // Icon, logo and diagram asks: plain shapes and even lines are the
+          // point, so only generated copy and the stock app icon are refused.
+          const doc = store.getDoc(docId);
+          const said = askOf(host, docId);
+          const textBad = [], bad = [];
+          const read = [];
+          for (const raw of a.items || []) { try { const it = G.normItem(raw); read.push({ it, b: G.bounds(it) }); } catch (err) { textBad.push(`an item could not be read (${err.message}); fix its fields and call draw again`); } }
+          for (const { it, b } of read) {
+            if (it.type !== "text" || !b || typeof it.text !== "string" || !it.text.trim()) continue;
+            const why = slopText(it.text);
+            if (why) textBad.push(`the text at x ${Math.round(b.x)}, y ${Math.round(b.y)} reads as generated copy (${why}): ${TEXT_FIX}`);
+          }
+          if (drawMode === "mark" && !/\b(letters?|monograms?|initials?|word\s?marks?|letter\s?marks?|text (icon|logo|mark)|typographic|lettering)\b/i.test(said)) {
+            const old = doc.layers.flatMap((l) => l.items || []).map((it) => { try { return { it, b: G.bounds(it) }; } catch { return null; } }).filter((e) => e && e.b);
+            const all = old.concat(read.filter((e) => e.b));
+            const texts = all.filter((e) => e.it.type === "text" && typeof e.it.text === "string" && e.it.text.trim());
+            const glyph = texts.length === 1 && /^[A-Za-z0-9]{1,2}$/.test(texts[0].it.text.trim()) ? texts[0] : null;
+            const esc = glyph ? glyph.it.text.trim() : "";
+            const named = glyph && (new RegExp(`["'“‘]${esc}["'”’]`).test(said) || (esc.length === 2 && new RegExp(`\\b${esc}\\b`).test(said)));
+            // Only when this call adds the letter or a tile for it.
+            if (glyph && !named && (read.includes(glyph) || read.some((e) => e.it.type === "rect" || e.it.type === "ellipse"))) {
+              const shapes = all.filter((e) => e !== glyph && e.it.type !== "text" && e.b.w * e.b.h > 0);
+              const tile = shapes.filter((e) => (e.it.type === "rect" || e.it.type === "ellipse") && e.b.w <= 1.25 * e.b.h && e.b.h <= 1.25 * e.b.w && glyph.b.x >= e.b.x && glyph.b.x + glyph.b.w <= e.b.x + e.b.w && glyph.b.y >= e.b.y - 0.1 * e.b.h && glyph.b.y + glyph.b.h <= e.b.y + 1.1 * e.b.h).sort((p, q) => q.b.w * q.b.h - p.b.w * p.b.h)[0];
+              const rest = tile ? shapes.filter((e) => e !== tile && e.b.w * e.b.h < 0.5 * tile.b.w * tile.b.h && e.b.w * e.b.h >= 0.004 * tile.b.w * tile.b.h) : [];
+              if (tile && rest.length <= 2) bad.push(`the mark is the letter${esc.length > 1 ? "s" : ""} "${esc}" in a tile at x ${Math.round(tile.b.x)}-${Math.round(tile.b.x + tile.b.w)}, y ${Math.round(tile.b.y)}-${Math.round(tile.b.y + tile.b.h)}: the default app icon. Draw a mark that shows what the thing is or does, and keep a letter only when the ask says to use one`);
+            }
+          }
+          const key = docId + "\n#draw";
+          const tries = lintTries.get(key) || 0;
+          // Generated copy never lands. The stock icon lands on the fourth try, listed.
+          if (textBad.length || (bad.length && tries < 3)) {
+            if (tries < 3) lintTries.set(key, tries + 1);
+            throw new Error(`JDraw did not place these shapes (try ${Math.min(tries + 1, 4)} of 4). Fix these and call draw again:\n` + textBad.concat(bad).slice(0, 8).map((p, n) => `${n + 1}. ${p}.`).join("\n"));
+          }
+          lintTries.delete(key);
+          if (bad.length) drawNote = bad;
+        }
+        if (drawMode === "full") {
           const doc = store.getDoc(docId);
           const A = doc.width * doc.height;
           const bad = [];
@@ -464,15 +522,8 @@ function createMcpServer(host) {
               }
             }
             if (it.type === "text" && b && typeof it.text === "string" && it.text.trim()) {
-              // Words on the canvas are the strongest tell: a generated slogan
-              // or an em dash lands unchecked unless we test the string.
-              const t = it.text;
-              const hit = t.match(/\b(delve|tapestry|realm|seamless|elevate|unlock|unleash|empower|leverage|robust|streamline|harness|testament|pivotal|vibrant|crucial|game[-\s]?changer|cutting[-\s]?edge|next[-\s]?level|revolutionary|journey|ecosystem|stunning|breathtaking|masterpiece)\b/i)
-                || t.match(/(dive in|ready to|get started|learn more|level up|imagine a world|not just\b.{0,40}\bbut\b|it's not\b.{0,40}\bit's\b|more than just)/i)
-                || t.match(/—|--|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u);
-              const ws = t.trim().split(/\s+/);
-              const titled = ws.length >= 4 && ws.every((w) => /^["'(\[]*[A-Z]/.test(w)) && ws.some((w) => /[a-z]/.test(w));
-              if (hit || titled) bad.push(`the text at x ${Math.round(b.x)}, y ${Math.round(b.y)} reads as generated copy (${hit ? `"${hit[0]}"` : "Title Case on every word"}): write the shortest plain version in sentence case, only the words the person gave or real labels`);
+              const why = slopText(it.text);
+              if (why) bad.push(`the text at x ${Math.round(b.x)}, y ${Math.round(b.y)} reads as generated copy (${why}): ${TEXT_FIX}`);
             }
             if (!b || b.w * b.h < 0.004 * A || (b.w >= 0.9 * doc.width && b.h >= 0.25 * doc.height)) continue;
             const glow = (it.fill && typeof it.fill === "object" && it.shadow && it.shadow.blur) || Number(it.opacity ?? 1) < 0.35;
@@ -540,7 +591,7 @@ function createMcpServer(host) {
           lintTries.delete(key);
         }
         const [res] = store.apply(docId, [{ op: "add_items", items, layerId: layerRef(a.layer), newLayer: a.newLayer, layerIndex: a.layerIndex, position: a.position }], "agent");
-        return { json: { added: res.ids.length, ids: res.ids, layerId: res.layerId } };
+        return { json: Object.assign({ added: res.ids.length, ids: res.ids, layerId: res.layerId }, drawNote ? { placedWithProblems: drawNote } : {}) };
       }
       case "draw_svg": {
         const src = svgToDataUrl(a.svg);
@@ -557,7 +608,45 @@ function createMcpServer(host) {
         // refusals for one object name the fourth try lands, with the
         // problems listed.
         let lintNote = null;
-        if (!host.lintOn || host.lintOn(docId)) {
+        let nameTip = null;
+        const svgMode = lintModeOf(host, docId);
+        const ask = askOf(host, docId);
+        if (svgMode === "mark" || svgMode === "clean") {
+          // Icon, logo and diagram asks get their own short rule set: the
+          // stock marks and generated copy. No scenery rule runs here.
+          const vbm = String(a.svg).match(/viewBox\s*=\s*["']\s*([-\d.]+)[\s,]+([-\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+          const vb = vbm ? { x: +vbm[1], y: +vbm[2], w: +vbm[3], h: +vbm[4] } : { x: 0, y: 0, w: size.w, h: size.h };
+          const { problems } = Lint.lintClean(String(a.svg), { vb, x: item.x, y: item.y, w, h, W: doc.width, H: doc.height, name: a.name, ask, kind: svgMode });
+          const copy = Lint.textsOf(String(a.svg)).map((t) => [t, slopText(t)]).filter((e) => e[1]).map(([t, why]) => ({ rule: "text", what: `the text "${t.slice(0, 40)}" reads as generated copy (${why})`, fix: TEXT_FIX[0].toUpperCase() + TEXT_FIX.slice(1) + "." }));
+          const key = docId + "\n" + (a.name ? String(a.name).toLowerCase() : `@${Math.round(item.x / 100)},${Math.round(item.y / 100)},${Math.round(w / 100)}`);
+          const tries = lintTries.get(key) || 0;
+          const what = svgMode === "mark" ? "it uses a stock icon or logo shape" : "it carries a stock mark";
+          // Generated copy never lands; a stock mark lands on the fourth try.
+          if (copy.length || (problems.length && tries < 3)) {
+            if (tries < 3) lintTries.set(key, tries + 1);
+            throw new Error(`JDraw did not place this SVG (${a.name || "unnamed"}, try ${Math.min(tries + 1, 4)} of 4): ${copy.length && !problems.length ? "its text reads as generated copy" : what}. Fix these and call draw_svg again with the whole object, same name:\n` + copy.concat(problems).map((p, n) => `${n + 1}. ${p.what}. ${p.fix}`).join("\n"));
+          }
+          lintTries.delete(key);
+          if (problems.length) {
+            // Last try: a sparkle, a swoosh or an orbit ring is decoration on
+            // top of the mark, so JDraw takes it out. The rest lands, listed.
+            let svg = String(a.svg), stripped = 0;
+            for (const el of new Set(problems.filter((p) => ["sparkle", "logo-swoosh", "logo-orbit"].includes(p.rule)).flatMap((p) => p.els || []))) {
+              const tag = (el.match(/^<([a-z]+)/i) || [])[1];
+              const selfClosed = /\/>$/.test(el);
+              if (!selfClosed && !tag) continue;
+              const lit = el.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const re = new RegExp(selfClosed ? lit : lit + "[\\s\\S]*?</" + tag + ">", "g");
+              const n = (svg.match(re) || []).length;
+              if (n && Lint.shapesOf(svg.replace(re, "")).length) { svg = svg.replace(re, ""); stripped += n; }
+            }
+            if (stripped) item.src = svgToDataUrl(svg);
+            lintNote = Lint.lintClean(svg, { vb, x: item.x, y: item.y, w, h, W: doc.width, H: doc.height, name: a.name, ask, kind: svgMode }).problems.map((p) => p.what);
+            if (stripped) lintNote.unshift(`JDraw removed ${stripped} stock shape${stripped === 1 ? "" : "s"} (sparkle, swoosh or orbit ring)`);
+          }
+        }
+        if (svgMode === "full") {
+          if (Lint.genericName(a.name)) nameTip = "Name each object for what it is (name: \"cloud\", \"rock\", \"lighthouse\"), so it is checked as that thing.";
           const vbm = String(a.svg).match(/viewBox\s*=\s*["']\s*([-\d.]+)[\s,]+([-\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
           const vb = vbm ? { x: +vbm[1], y: +vbm[2], w: +vbm[3], h: +vbm[4] } : { x: 0, y: 0, w: size.w, h: size.h };
           // Other cloud items already on the canvas, by what they draw.
@@ -575,7 +664,7 @@ function createMcpServer(host) {
               return { x: it.x + ((x0 - v.x) * it.w) / v.w, y: it.y + ((y0 - v.y) * it.h) / v.h, w: ((x1 - x0) * it.w) / v.w, h: ((y1 - y0) * it.h) / v.h };
             } catch { return null; }
           }).filter(Boolean) : [];
-          const { problems } = Lint.lintSvg(String(a.svg), { vb, x: item.x, y: item.y, w, h, W: doc.width, H: doc.height, name: a.name, otherClouds });
+          const { problems } = Lint.lintSvg(String(a.svg), { vb, x: item.x, y: item.y, w, h, W: doc.width, H: doc.height, name: a.name, ask, otherClouds });
           // Unnamed SVGs are told apart by where they go, so they do not share one budget.
           const key = docId + "\n" + (a.name ? String(a.name).toLowerCase() : `@${Math.round(item.x / 100)},${Math.round(item.y / 100)},${Math.round(w / 100)}`);
           const tries = lintTries.get(key) || 0;
@@ -593,7 +682,7 @@ function createMcpServer(host) {
             // Shards go only when they are light specks (foam, sparkle); dark
             // ones may be windows or stones that belong to the object.
             const light = (el) => { const m = el.match(/fill\s*=\s*["']#([0-9a-f]{3}|[0-9a-f]{6})["']/i); if (!m) return false; const h = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1]; const v = [0, 2, 4].map((k) => parseInt(h.slice(k, k + 2), 16) / 255); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2] > 0.72; };
-            const strip = new Set(problems.filter((p) => ["ovals", "flat-patches", "dashes", "lens", "shards", "light-wedge", "pill-row", "floating-shadow", "sea-blotches", "sea-ghost", "ladder", "sea-soft-blobs", "sticker-shadow", "drawn-cracks", "foam-slab", "hanging-shadow", "stamped-holes", "pill-swell", "ribbon-cloud", "decal"].includes(p.rule)).flatMap((p) => (p.rule === "shards" ? (p.els || []).filter(light) : p.els || [])));
+            const strip = new Set(problems.filter((p) => ["ovals", "flat-patches", "dashes", "lens", "shards", "light-wedge", "pill-row", "floating-shadow", "sea-blotches", "sea-ghost", "ladder", "sea-soft-blobs", "sticker-shadow", "drawn-cracks", "foam-slab", "hanging-shadow", "stamped-holes", "pill-swell", "ribbon-cloud", "decal", "sparkle"].includes(p.rule)).flatMap((p) => (p.rule === "shards" ? (p.els || []).filter(light) : p.els || [])));
             let stripped = 0;
             for (const el of strip) {
               // Self-closing tags, or an open tag with its own closing tag; every copy goes.
@@ -629,7 +718,7 @@ function createMcpServer(host) {
             // few-point outline an uneven outline, a lens cloud lumps, a ruled
             // horizon a rise and dip, and then cuts lit, shadow and ledge
             // planes into whatever is still one flat mass, aimed at the light.
-            const lintOpts = { vb, x: item.x, y: item.y, w, h, W: doc.width, H: doc.height, name: a.name, otherClouds };
+            const lintOpts = { vb, x: item.x, y: item.y, w, h, W: doc.width, H: doc.height, name: a.name, ask, otherClouds };
             const elsOf = (list, rules) => list.filter((p) => rules.includes(p.rule)).flatMap((p) => p.els || []);
             let built = 0;
             const lintNow = () => Lint.lintSvg(svg, lintOpts).problems;
@@ -720,7 +809,7 @@ function createMcpServer(host) {
           }
         }
         const [res] = store.apply(docId, [{ op: "add_items", items: [item], layerId: layerRef(a.layer), newLayer: a.newLayer, layerIndex: a.layerIndex }], "agent");
-        return { json: Object.assign({ id: res.ids[0], layerId: res.layerId, x: item.x, y: item.y, w: round(w), h: round(h) }, lintNote ? { placedWithProblems: lintNote } : {}) };
+        return { json: Object.assign({ id: res.ids[0], layerId: res.layerId, x: item.x, y: item.y, w: round(w), h: round(h) }, lintNote && lintNote.length ? { placedWithProblems: lintNote } : {}, nameTip ? { tip: nameTip } : {}) };
       }
       case "edit_items": {
         const ops = [];

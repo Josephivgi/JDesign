@@ -1310,6 +1310,72 @@ function createAcpHost(host, dependencies) {
     return instructions + "\n\n" + (rules ? rules + "\n\n" : "") + CARD_TOOLS_HINT + "\n\n" + (hint ? hint + "\n\n" + body : body);
   }
 
+  // The after-turn slop gate (lib/slop/after-turn.js): checks what the agent
+  // designed or rendered in the turn that just ended and, when it reads as
+  // slop, sends the findings back to the same session as a fix turn. The chat
+  // gets one plain system line per round and the agent's fix reply, never a
+  // made-up message from the person. Nothing in here may fail their turn.
+  async function slopGateAfterTurn(session, turn) {
+    const stopped = () => turn.cancelVersion !== session.cancelVersion || !current(session);
+    const log = (message) => {
+      try {
+        require("../lib/slop/after-turn").logLine(host.dataRoot, { error: String(message) });
+      } catch {
+        console.error(message);
+      }
+    };
+    try {
+      const rows = session.transcript.slice(Math.max(0, turn.userRowIndex));
+      const report = await require("../lib/slop/after-turn").runAfterTurn({
+        dataRoot: host.dataRoot,
+        appRoot: host.appRoot,
+        since: turn.since,
+        harnessId: session.harnessId,
+        projectId: session.projectId || "",
+        workspaceId: session.workspaceId || "",
+        toolTitles: rows.filter((row) => row && row.role === "tool").map((row) => row.title),
+        asked: session.transcript.filter((row) => row && row.role === "user").map((row) => row.text).join("\n"),
+        signal: session.turnController ? session.turnController.signal : undefined,
+        stopped,
+        log,
+        say(text, extra) {
+          push(session, Object.assign({ role: "system", text }, extra || {}));
+          emitTranscript(session);
+        },
+        async send(text) {
+          session.internalError = "";
+          session.internalErrorAt = -1;
+          session.internalErrorLen = 0;
+          let result = null;
+          try {
+            const options = { signal: session.turnController ? session.turnController.signal : undefined };
+            result =
+              typeof session.client.promptWithRecovery === "function"
+                ? await session.client.promptWithRecovery(text, session.sessionId, options)
+                : await session.client.prompt(text, session.sessionId);
+          } catch (error) {
+            if (stopped()) return { stopped: true };
+            settleOrphanTools(session);
+            return { failed: true, why: clean(session, (error && error.message) || String(error)) };
+          }
+          if (stopped() || (result && result.stopReason === "cancelled")) return { stopped: true };
+          settleOrphanTools(session);
+          if (session.internalError && !recoveredFromInternalError(session)) return { failed: true, why: "internal error" };
+          if (result && result.idleStopped) return { failed: true, why: "the agent went quiet" };
+          return { ok: true };
+        },
+      });
+      if (report.failed && report.sent && current(session)) {
+        push(session, { role: "system", text: (session.agentName || "The agent") + " stopped mid-turn while fixing what the check found. Send a message to continue." });
+      }
+      session.slopGate = report;
+      return report;
+    } catch (error) {
+      log("slop gate: " + String((error && error.stack) || error));
+      return { ran: false, failed: true };
+    }
+  }
+
   async function prompt(payload) {
     const body = payload || {};
     const session = sessions.get(key(body));
@@ -1325,6 +1391,7 @@ function createAcpHost(host, dependencies) {
     session.error = "";
     const cancelVersion = session.cancelVersion;
     session.turnController = new AbortController();
+    const turnStartedAt = new Date().toISOString();
     // A restored chat whose agent could not reload its session gets the
     // earlier conversation prepended once so the reply sees real history.
     // The prefix is only consumed once the prompt actually dispatches: a
@@ -1348,6 +1415,13 @@ function createAcpHost(host, dependencies) {
       // Advanced disclosure so the thread stays readable.
       push(session, Object.assign({ role: "user", text: displayText, sent: promptArgs }, Number.isFinite(body.at) ? { at: body.at } : {}));
       const userRowIndex = session.transcript.length - 1;
+      // The slop gate never turns down a look the person asked for, in this
+      // message or an earlier one, so it gets every line they typed here.
+      try {
+        require("../lib/slop/gate").setAsked(session, session.transcript.filter((row) => row && row.role === "user").map((row) => row.text));
+      } catch {
+        /* the gate then runs without knowing what was asked */
+      }
       bindChat(session, slash.title || displayText);
       emitState(session);
       // A turn can run for minutes with the user away. Hold off system
@@ -1402,13 +1476,18 @@ function createAcpHost(host, dependencies) {
           if (!internalText && !slash.raw) session.historyPrefix = "";
           settleOrphanTools(session);
           const idleMin = result && result.idleStopped ? Math.max(1, Math.round((result.idleMs || 0) / 60000)) : 0;
+          // A turn that ended by itself gets the slop check before it counts as
+          // finished. The gate never throws; the person's Stop ends it too.
+          const gated = !userStopped && !internalText && !idleMin && !slash.raw && !(result && result.stopReason === "cancelled");
+          const gate = gated ? await slopGateAfterTurn(session, { since: turnStartedAt, cancelVersion, userRowIndex }) : null;
+          const gateStopped = Boolean(gate && gate.stopped);
           const ended = idleMin
             ? "Turn stopped: " + (session.agentName || "the agent") + " sent nothing for " + idleMin + " min. Send a message to continue."
-            : result && result.stopReason === "cancelled"
+            : gateStopped || (result && result.stopReason === "cancelled")
               ? "Turn stopped."
               : "Turn finished.";
           push(session, { role: "system", text: ended });
-          return Object.assign({}, scope(session), { stopReason: result && result.stopReason });
+          return Object.assign({}, scope(session), { stopReason: gateStopped ? "cancelled" : result && result.stopReason });
         }
         // The turn ended on an internal agent error, not a real answer.
         settleOrphanTools(session);

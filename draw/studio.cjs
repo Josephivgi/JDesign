@@ -136,6 +136,20 @@ function askedCleanLook(prompt) {
   }
   return false;
 }
+// An icon or a logo gets the stock-mark rules; another clean look (a
+// diagram, pixel art, flat vector) only the ones that hold for any clean
+// work; everything else the full lint.
+const MARK_LOOK = /\b(icons?|logos?|logotype|favicon|emblem)\b/i;
+function lintModeFor(prompt) {
+  if (!askedCleanLook(prompt)) return "full";
+  const re = new RegExp(MARK_LOOK.source, "gi");
+  let m;
+  while ((m = re.exec(prompt))) {
+    const before = prompt.slice(Math.max(0, m.index - 24), m.index).toLowerCase();
+    if (!/\b(no|not|never|without|avoid|don't|dont|nothing like|instead of)\b[^.,;]*$/.test(before)) return "mark";
+  }
+  return "clean";
+}
 // Where the light in the picture is: the brightest patch of a small render
 // (upper four fifths, where a sun, a glow or a lit sky sits). Canvas px.
 async function sceneLight(docId) {
@@ -206,7 +220,8 @@ function fragmentRow(issue) {
 }
 
 async function checkDrawing(docId) {
-  const r = await SlopCheck.checkDrawing(store.getDoc(docId), () => viewDrawing(docId, { maxSize: 1024 }), personItems.get(docId) || null);
+  const asked = turnPrompts.get(docId) || "";
+  const r = await SlopCheck.checkDrawing(store.getDoc(docId), () => viewDrawing(docId, { maxSize: 1024 }), personItems.get(docId) || null, { ask: asked, clean: askedCleanLook(asked) });
   if (r && Array.isArray(r.issues)) {
     r.issues = r.issues.filter((i) => !fragmentRow(i));
     if (!r.issues.length && !r.ok) r.ok = true;
@@ -266,7 +281,11 @@ async function reviewDrawing(docId, drawer, previous, checkerNotes, fixedEffort)
       ask += "\n\nYour last review listed these. The drawer has tried to fix one of them. Check each one first: leave it out if it is fixed; if it is still there, keep it with \"was\": its number below and \"change\": \"better\", \"same\" or \"worse\" compared with last time (judge the object as it is now, not your old words). Then add at most two new ones, only if they are worse than what is left.\n" + previous.map((i, n) => `${n + 1}. ${i.what}${i.where ? ` (where: ${i.where})` : ""}`).join("\n");
     }
     if (checkerNotes && checkerNotes.length) {
-      ask += "\n\nJDraw's measuring script also flagged these. Include one only if you can see it is a real tell; leave out parts of objects (rails, window bars, masts, stripes):\n" + checkerNotes.map((i, n) => `${n + 1}. ${i.what}${i.where ? ` (where: ${i.where})` : ""}`).join("\n");
+      ask += "\n\nJDraw's measuring script also flagged these. Include one only if you can see it is a real tell; leave out parts of objects (rails, window bars, masts, stripes):\n" + checkerNotes.map((i, n) => `${n + 1}. ${i.rule ? `[rule: ${i.rule}] ` : ""}${i.what}${i.where ? ` (where: ${i.where})` : ""}`).join("\n") + "\nWhen you include one, copy its rule into that issue as \"rule\": \"...\".";
+    }
+    const lookMode = lintModeFor(turnPrompts.get(docId) || "");
+    if (lookMode !== "full") {
+      ask += `\n\nThe person asked for ${lookMode === "mark" ? "an icon or a logo" : "a clean graphic look"}: "${(turnPrompts.get(docId) || "").slice(0, 300)}". Flat fills, plain geometric shapes, even outlines, symmetry and a centered mark are meant here, so do not report them. Report what is still a tell in clean work: ${lookMode === "mark" ? "the stock marks (a four-point sparkle, an orbit ring, a single letter in a rounded tile, a swoosh, a purple or pink gradient), " : "a four-point sparkle, "}parts that do not join, spacing or line weights that look like mistakes, text that reads as generated, and a mark that says nothing about its subject.`;
     }
     await rv.prompt(ask, null, false);
     if (!parseReview(text)) {
@@ -397,12 +416,13 @@ function itemsFor(docId, issue, others = []) {
   return out.slice(0, 4);
 }
 
-// The same problem keeps its first content word between rounds even when
-// the reviewer rewords the rest.
+// The same problem keeps one id between rounds even when the reviewer
+// rewords it: lib/gate-match.cjs matches by the checker's rule id, then by
+// where the issue is, then by the item ids and the thing it is about.
+const GateMatch = require("./lib/gate-match.cjs");
 // Stock clouds JDraw left out, and draw-time refusals, during a gate fix turn.
 const leftOut = new Map(); // docId -> names
 const refusedIn = new Map(); // docId -> count
-const issueKey = (i) => String(i.what || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w && !["the", "a", "an", "is", "are", "all", "both", "still", "very", "one", "two", "three", "four", "five", "every", "each", "flat", "big", "small", "large", "stock", "bottom", "top", "left", "right", "in", "of"].includes(w)).slice(0, 2).map((w) => (w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w)).join(" ");
 const roundScore = (issues) => issues.reduce((sum, i) => sum + (i.severity || 2), 0);
 // A state is worse when its worst problem is worse; only then by total
 // score. Comparing by score alone restores a round with one severe,
@@ -416,21 +436,6 @@ function iou(a, b) {
   if (w <= 0 || h <= 0) return 0;
   const inter = w * h;
   return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter);
-}
-// The issue in a new review that is the same problem as `pick`, if any:
-// the one the reviewer says it carried over, else the same key, else a
-// box match (only for object-sized boxes, never a whole-scene one).
-function sameIssue(issues, pick, pickIndex, canvasArea) {
-  const pb = issueBox(pick), key = issueKey(pick);
-  const objectSized = (b) => b && (b[2] - b[0]) * (b[3] - b[1]) < 0.5 * canvasArea;
-  // The reviewer's "was" number is trusted only when that issue is about the
-  // same place or the same items; reviewers sometimes swap the numbers.
-  const pids = new Set(Array.isArray(pick.ids) ? pick.ids : []);
-  const agrees = (i) => (pb && issueBox(i) && iou(issueBox(i), pb) >= 0.2) || (Array.isArray(i.ids) && i.ids.some((id) => pids.has(id))) || (key && issueKey(i) === key);
-  return issues.find((i) => Number(i.was) === pickIndex + 1 && agrees(i))
-    || issues.find((i) => key && issueKey(i) === key)
-    || (objectSized(pb) ? issues.find((i) => objectSized(issueBox(i)) && iou(issueBox(i), pb) >= 0.35) : null)
-    || null;
 }
 // A redraw stays unless the reviewer says that problem got worse (a "same"
 // redraw stays too; the gate gives it one more try, then counts it failed).
@@ -454,9 +459,16 @@ const ROCK_RECIPE = "\n\nRock recipe (follow each step): 1) outline one closed p
 // three redraws in a row fixed nothing (put back, or kept as "same").
 async function runGate(docId, s, chat) {
   const maxFix = Number(process.env.JDRAW_GATE_ROUNDS) || 6;
-  const finishOn = store.getPref("artistFinish", true) !== false;
+  // A logo, an icon, a diagram or pixel art keeps its clean edges: painted
+  // outlines and paper grain on a mark are a flaw, not a finish.
+  const finishOn = store.getPref("artistFinish", true) !== false && !askedCleanLook(turnPrompts.get(docId) || "");
   const doc0 = store.getDoc(docId);
   const history = [];
+  // One id per problem for the whole gate run, so the counts below follow
+  // the problem through reworded reviews.
+  const matchCtx = { box: issueBox, canvasArea: doc0.width * doc0.height };
+  const problems = GateMatch.tracker(matchCtx);
+  const issueKey = (i) => problems.idOf(i);
   const sent = new Map(); // issueKey -> times sent to the drawer
   const refunded = new Set();
   const sameOnce = new Set(); // issueKeys whose redraw already came back "same" once
@@ -511,6 +523,10 @@ async function runGate(docId, s, chat) {
       gateEvent(docId, "The reviewer");
       const review = await reviewDrawing(docId, s, lastReview, checkerIssues, effortBefore);
       if (review.error) return end({ ok: null, error: review.error, rounds: fixes, history });
+      // "was" numbers count in the list the reviewer was shown, so problem
+      // ids are given before the sort.
+      GateMatch.attachRules(review.issues, checkerIssues, matchCtx);
+      problems.assign(review.issues, lastReview);
       issues = review.issues.slice().sort((a, b) => (b.severity || 2) - (a.severity || 2)).slice(0, 6);
       if (!issues.length && !review.clean) {
         history.push({ stage: "reviewer", issues: [], checker: checkerIssues });
@@ -519,7 +535,7 @@ async function runGate(docId, s, chat) {
       // Judge the last redraw on its own.
       let reverted = false;
       if (pending) {
-        const still = sameIssue(issues, pending.pick, pending.issues.indexOf(pending.pick), doc0.width * doc0.height);
+        const still = problems.find(issues, pending.pick);
         if (redrawFailed(still, pending.pick) && putBack(pending.snap, `the redraw did not fix "${pending.pick.what}"`)) {
           history.push({ stage: "reviewer", issues, checker: checkerIssues, reverted: pending.pick.what, score: roundScore(issues) });
           issues = pending.issues;
@@ -892,7 +908,7 @@ function registerIpc() {
         if (gate && drew && !gateStop.has(id) && !(res && res.stopReason === "cancelled")) {
           const result = await runGate(id, s, chat);
           // Anything drawn in the last fix round gets the finish too.
-          if (!result.stopped && store.getPref("artistFinish", true) !== false) {
+          if (!result.stopped && store.getPref("artistFinish", true) !== false && !askedCleanLook(turnPrompts.get(id) || "")) {
             try { result.finish = finishDrawing(id); } catch (err) { log(`[${id}] finish failed: ${err.message}`); }
           }
           result.at = Date.now();
@@ -1089,6 +1105,10 @@ async function init(opts) {
     // draw_svg's shape lint is on with the slop gate, off for clean looks
     // (pixel art, flat vector, logos, diagrams) the person asked for.
     lintOn: (id) => store.getPref("slopGate", true) !== false && !askedCleanLook(turnPrompts.get(id) || ""),
+    // Which rule set the draw tools use this turn: the full one, the short
+    // one for icons and logos ("mark"), the one for other clean looks, or none.
+    lintMode: (id) => (store.getPref("slopGate", true) === false ? "off" : lintModeFor(turnPrompts.get(id) || "")),
+    turnPrompt: (id) => turnPrompts.get(id) || "",
     context: (id) => contexts.get(id) || {},
     setBrush: (id, brush) => {
       const c = contexts.get(id) || {};

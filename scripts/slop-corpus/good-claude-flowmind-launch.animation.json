@@ -1,0 +1,45 @@
+{
+ "savedAt": "2026-11-20T02:22:46.109Z",
+ "scenes": [
+  {
+   "durationMs": 2200,
+   "transition": "cut",
+   "html": "<div class=\"s1\"><div class=\"s1-word\" data-split=\"chars\">FlowMind</div><div class=\"s1-rule\"></div><div class=\"s1-tag\">AI productivity app</div></div>",
+   "css": ".s1{position:absolute;inset:0;background:var(--primary);color:var(--text);display:flex;flex-direction:column;justify-content:center;padding:0 9vmin;}.s1-word{font-family:Georgia,'Times New Roman',serif;font-size:17vmin;line-height:1;letter-spacing:-0.01em;}.s1-word .jv-char{display:inline-block;animation:s1-rise 700ms cubic-bezier(.16,1,.3,1) both;animation-delay:calc(var(--i) * 45ms);}@keyframes s1-rise{from{transform:translateY(60%);opacity:0}to{transform:none;opacity:1}}.s1-rule{height:0.4vmin;width:0;background:var(--secondary);margin:4vmin 0 3vmin;animation:s1-grow 600ms cubic-bezier(.16,1,.3,1) 500ms both;}@keyframes s1-grow{to{width:22vmin}}.s1-tag{font-family:'Segoe UI',sans-serif;font-size:3vmin;letter-spacing:0.06em;opacity:0;animation:s1-fade 500ms ease-out 800ms both;}@keyframes s1-fade{to{opacity:0.85}}"
+  },
+  {
+   "durationMs": 3000,
+   "transition": "slide",
+   "transitionMs": 350,
+   "html": "<div class=\"s2\"><div class=\"s2-stat\"><div class=\"s2-num\">00%</div><div class=\"s2-label\">Your stat here</div></div><div class=\"s2-copy\"><div class=\"s2-eye\">Capture</div><h2 class=\"s2-head\">Every idea lands in one place.</h2></div></div>",
+   "css": ".s2{position:absolute;inset:0;background:var(--primary);color:var(--text);padding:9vmin;}.s2-stat{position:absolute;right:9vmin;top:9vmin;text-align:right;animation:s2-in 600ms ease-out 300ms both;}.s2-num{font-family:Georgia,serif;font-size:14vmin;line-height:1;color:var(--secondary);}.s2-label{font-family:'Segoe UI',sans-serif;font-size:2.6vmin;margin-top:1.5vmin;opacity:0.75;}.s2-copy{position:absolute;left:9vmin;bottom:12vmin;width:70vmin;}.s2-eye{font-family:'Segoe UI',sans-serif;font-size:2.4vmin;letter-spacing:0.08em;text-transform:uppercase;opacity:0.7;animation:s2-in 500ms ease-out 0ms both;}.s2-head{font-family:Georgia,serif;font-weight:bold;font-size:8.5vmin;line-height:1.05;margin:2vmin 0 0;animation:s2-up 800ms cubic-bezier(.16,1,.3,1) 150ms both;}@keyframes s2-in{from{opacity:0}to{opacity:1}}@keyframes s2-up{from{transform:translateY(4vmin);opacity:0}to{transform:none;opacity:1}}"
+  },
+  {
+   "durationMs": 2000,
+   "transition": "cut",
+   "html": "<div class=\"s3\"><h2 class=\"s3-head\">Notes become a plan.</h2><div class=\"s3-row\"><span class=\"s3-num\">00</span><span class=\"s3-label\">Your stat here</span></div></div>",
+   "css": ".s3{position:absolute;inset:0;background:var(--primary);color:var(--text);padding:22vmin 9vmin 9vmin;}.s3-head{font-family:'Segoe UI Black','Segoe UI',sans-serif;font-weight:900;font-size:11vmin;line-height:1;margin:0;animation:s3-in 380ms cubic-bezier(.16,1,.3,1) both;}.s3-row{margin-top:6vmin;display:flex;align-items:baseline;gap:2.5vmin;animation:s3-in 500ms ease-out 250ms both;}.s3-num{font-family:Georgia,serif;font-size:7vmin;color:var(--secondary);}.s3-label{font-family:'Segoe UI',sans-serif;font-size:2.8vmin;opacity:0.75;}@keyframes s3-in{from{transform:translateX(-6vmin);opacity:0}to{transform:none;opacity:1}}"
+  },
+  {
+   "durationMs": 5000,
+   "transition": "zoom",
+   "transitionMs": 450,
+   "html": "<div class=\"s4\"><div class=\"s4-eye\">Focus</div><h2 class=\"s4-head\">Pick the next step.</h2><div class=\"s4-bar\"></div><div class=\"s4-meta\"><span class=\"s4-num\">00</span><span>Your stat here</span></div></div>",
+   "css": ".s4{position:absolute;inset:0;background:var(--primary);color:var(--text);padding:9vmin;}.s4-eye{position:absolute;left:9vmin;top:10vmin;font-family:'Segoe UI',sans-serif;font-size:2.4vmin;letter-spacing:0.08em;text-transform:uppercase;opacity:0;animation:s4-fade 400ms ease-out 0ms both;}.s4-head{position:absolute;left:9vmin;top:38vmin;margin:0;font-family:Georgia,serif;font-size:12vmin;line-height:1;animation:s4-up 900ms cubic-bezier(.16,1,.3,1) 200ms both;}.s4-bar{position:absolute;left:9vmin;bottom:18vmin;height:0.5vmin;width:0;background:var(--secondary);animation:s4-grow 1000ms cubic-bezier(.16,1,.3,1) 600ms both;}.s4-meta{position:absolute;left:9vmin;bottom:9vmin;font-family:'Segoe UI',sans-serif;font-size:2.8vmin;opacity:0;animation:s4-fade 500ms ease-out 900ms both;}.s4-num{font-family:Georgia,serif;font-size:5vmin;color:var(--secondary);margin-right:2vmin;}@keyframes s4-fade{from{opacity:0}to{opacity:1}}@keyframes s4-up{from{transform:translateY(5vmin);opacity:0}to{transform:none;opacity:1}}@keyframes s4-grow{to{width:82vmin}}"
+  },
+  {
+   "durationMs": 3600,
+   "transition": "fade",
+   "html": "<div class=\"s5\"><h2 class=\"s5-head\">Start with one note.</h2><div class=\"s5-row\"><div class=\"s5-btn\">Try FlowMind</div><div class=\"s5-url\">Your link here</div></div></div>",
+   "css": ".s5{position:absolute;inset:0;background:var(--primary);color:var(--text);padding:9vmin;}.s5-head{position:absolute;left:9vmin;top:24vmin;margin:0;width:150vmin;font-family:Georgia,serif;font-size:11vmin;line-height:1.02;animation:s5-up 800ms cubic-bezier(.16,1,.3,1) 0ms both;}.s5-row{position:absolute;left:9vmin;bottom:14vmin;display:flex;align-items:center;gap:4vmin;animation:s5-up 700ms cubic-bezier(.16,1,.3,1) 600ms both;}.s5-btn{background:var(--secondary);color:var(--primary);font-family:'Segoe UI',sans-serif;font-weight:600;font-size:3.2vmin;padding:2vmin 4vmin;border-radius:0.6vmin;}.s5-url{font-family:'Segoe UI',sans-serif;font-size:2.8vmin;opacity:0.75;}@keyframes s5-up{from{transform:translateY(4vmin);opacity:0}to{transform:none;opacity:1}}"
+  }
+ ],
+ "colors": {
+  "primary": "#0F0E0C",
+  "secondary": "#D9A866",
+  "text": "#F3EEE4"
+ },
+ "aspectRatio": "16/9",
+ "durationMs": 15000,
+ "fps": 30
+}

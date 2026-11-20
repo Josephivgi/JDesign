@@ -149,7 +149,7 @@ function shapesOf(svg) {
   }
   const blurAmt = (f) => { const id = (String(f || "").match(/url\(\s*#([^)\s]+)\s*\)/) || [])[1]; return id && blurOf.has(id) ? blurOf.get(id) : id ? Infinity : 0; };
   const body =svg.replace(/<defs\b[\s\S]*?<\/defs>/gi, "").replace(/<(clipPath|mask|pattern|symbol|linearGradient|radialGradient|filter|text)\b[\s\S]*?<\/\1>/gi, "");
-  const stack = [{ m: ID, fill: undefined, op: 1, fop: 1, filter: false, blur: 0 }];
+  const stack = [{ m: ID, fill: undefined, op: 1, fop: 1, filter: false, blur: 0, strokeInh: undefined, sw: 1 }];
   const re = /<(\/?)([A-Za-z][\w:-]*)\b((?:"[^"]*"|'[^']*'|[^'">])*?)(\/?)>/g;
   let t;
   while ((t = re.exec(body))) {
@@ -164,6 +164,10 @@ function shapesOf(svg) {
       fop: a["fill-opacity"] !== undefined ? Number(a["fill-opacity"]) : top.fop,
       filter: top.filter || /url\(/.test(a.filter || ""),
       blur: Math.max(top.blur || 0, /url\(/.test(a.filter || "") ? blurAmt(a.filter) : 0),
+      // The stroke as painted: its own or the group's (the older rules read
+      // only an element's own stroke, so that field stays as it was).
+      strokeInh: a.stroke !== undefined ? a.stroke : top.strokeInh,
+      sw: a["stroke-width"] !== undefined && Number.isFinite(parseFloat(a["stroke-width"])) ? parseFloat(a["stroke-width"]) : top.sw,
     };
     if (tag === "g" || tag === "a" || tag === "svg") { if (!self) stack.push(ctx); continue; }
     if (!["rect", "circle", "ellipse", "polygon", "polyline", "path", "line"].includes(tag)) continue;
@@ -175,7 +179,7 @@ function shapesOf(svg) {
     // shape has no hard silhouette, so the shape rules skip it.
     const fade = !!(grad && fades.has(grad));
     const soft = fade || alpha < 0.35 || ctx.filter;
-    const base = { tag, raw: t[0], soft, fade, alpha, linearFade: !!(grad && fades.get(grad) === "linear"), blurred: ctx.filter, blurAmt: ctx.filter ? ctx.blur : 0, fill: filled ? fill.toLowerCase() : null, stroke: a.stroke && a.stroke !== "none" ? a.stroke : null };
+    const base = { tag, raw: t[0], soft, fade, alpha, linearFade: !!(grad && fades.get(grad) === "linear"), blurred: ctx.filter, blurAmt: ctx.filter ? ctx.blur : 0, fill: filled ? fill.toLowerCase() : null, stroke: a.stroke && a.stroke !== "none" ? a.stroke : null, outlined: !!ctx.strokeInh && ctx.strokeInh !== "none" && ctx.strokeInh !== "transparent", sw: ctx.sw * Math.sqrt(Math.abs(ctx.m[0] * ctx.m[3] - ctx.m[1] * ctx.m[2])) };
     let subs = [];
     if (tag === "rect") {
       const x = +a.x || 0, y = +a.y || 0, w = +a.width || 0, h = +a.height || 0;
@@ -271,6 +275,94 @@ function labOf(fill) {
   return [0.2104542553 * l + 0.793617785 * mm - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * mm + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * mm - 0.808675766 * s];
 }
 
+const hueDeg = (lab) => ((Math.atan2(lab[2], lab[1]) * 180) / Math.PI + 360) % 360;
+const chromaOf = (lab) => Math.hypot(lab[1], lab[2]);
+const areaOfPoly = (p) => { let a = 0; for (let k = 0; k < p.length; k++) { const [x1, y1] = p[k], [x2, y2] = p[(k + 1) % p.length]; a += x1 * y2 - x2 * y1; } return Math.abs(a) / 2; };
+
+// An outline fine enough to measure gaps with: a circle or ellipse keeps
+// only 8 points in shapesOf, so it is rebuilt here from its centre and two
+// radii (they survive any transform).
+function fineOutline(s) {
+  if ((s.tag === "circle" || s.tag === "ellipse") && s.pts.length === 8) {
+    const cx = s.pts.reduce((a, p) => a + p[0], 0) / 8, cy = s.pts.reduce((a, p) => a + p[1], 0) / 8;
+    const u = [s.pts[0][0] - cx, s.pts[0][1] - cy], v = [s.pts[2][0] - cx, s.pts[2][1] - cy];
+    return Array.from({ length: 24 }, (_, k) => { const t = (k * Math.PI) / 12; return [cx + u[0] * Math.cos(t) + v[0] * Math.sin(t), cy + u[1] * Math.cos(t) + v[1] * Math.sin(t)]; });
+  }
+  return outlineOf(s);
+}
+function segDist(p, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
+  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+}
+function segsCross(a, b, c, d) {
+  const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  return (side(a, b, c) > 0) !== (side(a, b, d) > 0) && (side(c, d, a) > 0) !== (side(c, d, b) > 0);
+}
+// Distance between two closed outlines: 0 when they overlap or cross,
+// `limit` when they are that far apart or more.
+function outlineGap(A, B, limit) {
+  if (A.length < 3 || B.length < 3) return limit;
+  if (A.some((p) => inPoly(B, p[0], p[1])) || B.some((p) => inPoly(A, p[0], p[1]))) return 0;
+  let best = limit;
+  for (let i = 0; i < A.length; i++) {
+    const a0 = A[i], a1 = A[(i + 1) % A.length];
+    for (let j = 0; j < B.length; j++) {
+      const b0 = B[j], b1 = B[(j + 1) % B.length];
+      if (segsCross(a0, a1, b0, b1)) return 0;
+      const d = Math.min(segDist(a0, b0, b1), segDist(b0, a0, a1));
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+// A four-point sparkle: four tips a quarter turn apart with the outline
+// pinched in between them (an eight-corner star, or four curves that bow in).
+function isSparkle(s, kx, ky) {
+  if (!s.fill || !s.closed || s.tag === "rect" || s.tag === "circle" || s.tag === "ellipse") return false;
+  const V = uniq(s.pts).map((p) => [p[0] * kx, p[1] * ky]);
+  if (V.length !== 8 && V.length !== 4) return false;
+  const cx = V.reduce((a, p) => a + p[0], 0) / V.length, cy = V.reduce((a, p) => a + p[1], 0) / V.length;
+  const pol = V.map((p) => ({ r: Math.hypot(p[0] - cx, p[1] - cy), t: Math.atan2(p[1] - cy, p[0] - cx) })).sort((a, b) => a.t - b.t);
+  let tips, dips;
+  if (V.length === 8) {
+    const even = pol.filter((_, k) => k % 2 === 0), odd = pol.filter((_, k) => k % 2 === 1);
+    const mean = (v) => v.reduce((a, p) => a + p.r, 0) / v.length;
+    [tips, dips] = mean(even) > mean(odd) ? [even, odd] : [odd, even];
+    dips = dips.map((p) => p.r);
+  } else {
+    if (s.curves < 4) return false; // straight sides make a plain diamond
+    tips = pol;
+    dips = [Math.min(...outlineOf(s).map((p) => Math.hypot(p[0] * kx - cx, p[1] * ky - cy)))];
+  }
+  const tr = tips.map((p) => p.r), tmin = Math.min(...tr), tmax = Math.max(...tr);
+  if (!(tmin > 0) || tmin < 0.4 * tmax || Math.max(...dips) > 0.5 * tmin) return false;
+  for (let k = 0; k < 4; k++) {
+    let d = tips[(k + 1) % 4].t - tips[k].t;
+    if (d < 0) d += 2 * Math.PI;
+    if (Math.abs(d - Math.PI / 2) > 0.45) return false;
+  }
+  return true;
+}
+
+// The stops of every gradient: id -> [OKLab].
+function gradientStops(svg) {
+  const out = new Map();
+  const re = /<(linearGradient|radialGradient)\b((?:"[^"]*"|'[^']*'|[^'">])*)>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while ((m = re.exec(svg))) {
+    const id = attrs(m[2]).id;
+    if (!id) continue;
+    out.set(id, [...m[3].matchAll(/stop-color\s*[=:]\s*["']?\s*(#[0-9a-f]{3,6}|rgba?\([^)]*\)|[a-z]+)/gi)].map((x) => labOf(x[1])).filter(Boolean));
+  }
+  return out;
+}
+
+// A name that does not say what the object is (scene, part, drawing 2).
+const GENERIC_WORDS = /\b(svg|scene|scenery|object|obj|objects|part|parts|drawing|draw|layer|img|image|shape|shapes|item|items|group|element|elements|thing|things|picture|pic|art|artwork|illustration|untitled|main|detail|details|piece|pieces|stuff|misc|new|the|a|an|my|test|final|base|foreground|midground|middle|landscape|composition|content|graphic|graphics|vector|sketch|full|whole|all|everything|subject|figure|asset|path|paths|copy|redo|redraw|take|version|and|of|with|in|on|v?\d+)\b/gi;
+const genericName = (name) => !String(name || "").replace(GENERIC_WORDS, "").replace(/[^a-z]/gi, "").length;
+
 // opts: { vb: {x,y,w,h}, w, h (placed size in canvas px), W, H (canvas) }
 // Returns { problems: [{ rule, what, fix }], stats }.
 function lintSvg(svg, opts) {
@@ -320,6 +412,58 @@ function lintSvg(svg, opts) {
   const add = (rule, what, fix, els) => { if (!problems.some((p) => p.rule === rule && p.what === what)) problems.push({ rule, what, fix, els: (els || []).map((e) => e.raw).filter(Boolean) }); };
 
   const filled = shapes.filter((s) => s.fill && (!s.soft || (s.blurred && !s.fade && s.alpha >= 0.6 && s.blurAmt < 0.15 * Math.min(s.box.w, s.box.h))));
+  // What the object is, when its name does not say (scene, part, drawing 2):
+  // read from shape and color, so the rules that key off the name still run.
+  // Each detector is narrow on purpose. A wrong guess would refuse a good
+  // drawing for the wrong reason, so a guess only switches on rules whose
+  // advice holds for anything that looks like this, on the guessed shapes.
+  const generic = genericName(opts.name);
+  const guess = { words: [], clouds: null, crowns: null };
+  if (generic) {
+    const hitsBox = (p, o) => p.box.x < o.box.x + o.box.w && p.box.x + p.box.w > o.box.x && p.box.y < o.box.y + o.box.h && p.box.y + p.box.h > o.box.y;
+    const cyPx = (b) => opts.y + (b.y + b.h / 2 - vb.y) * ky;
+    const solids = shapes.filter((s) => s.fill && s.closed && !s.fade && !field(s.box));
+    const lab = (s) => labOf(s.fill);
+    // Cloud: pale, colorless, curved lumps in the upper part, wider than
+    // tall, with nothing dark set inside (eyes, windows).
+    const pale = solids.filter((s) => { const L = lab(s); return L && L[0] >= 0.8 && chromaOf(L) <= 0.05 && (s.alpha ?? 1) >= 0.6 && area(s.box) >= 0.003 * A && cyPx(s.box) <= 0.55 * H && (s.tag === "ellipse" || s.tag === "circle" || (s.segs.length > 0 && s.curves >= 0.6 * s.segs.length)); });
+    const groups = [];
+    for (const s of pale) { const t = groups.filter((g) => g.some((o) => hitsBox(s, o))); const m = [s].concat(...t); for (const g of t) groups.splice(groups.indexOf(g), 1); groups.push(m); }
+    const cloudy = groups.filter((g) => {
+      const u = bboxOf(g.flatMap((s) => [[s.box.x, s.box.y], [s.box.x + s.box.w, s.box.y + s.box.h]]));
+      if (u.w * kx < 1.4 * u.h * ky) return false;
+      return !solids.some((o) => !g.includes(o) && (lab(o) || [1])[0] < 0.5 && (o.alpha ?? 1) >= 0.6 && o.box.x >= u.x && o.box.y >= u.y && o.box.x + o.box.w <= u.x + u.w && o.box.y + o.box.h <= u.y + u.h);
+    }).flat();
+    if (cloudy.length) { guess.words.push("cloud"); guess.clouds = new Set(cloudy); }
+    // Tree: a compact green mass with a darker trunk, taller than wide, coming out under it.
+    const green = solids.filter((s) => { const L = lab(s); if (!L) return false; const h = hueDeg(L); return L[0] >= 0.25 && L[0] <= 0.8 && chromaOf(L) >= 0.05 && h >= 105 && h <= 175 && area(s.box) >= 0.002 * A && Math.max(s.box.w * kx, s.box.h * ky) <= 2.5 * Math.min(s.box.w * kx, s.box.h * ky); });
+    const crowns = green.filter((c) => solids.some((t) => { const L = lab(t); if (!L || t === c || green.includes(t)) return false; const h = hueDeg(L); const woody = L[0] <= 0.6 && (chromaOf(L) < 0.03 || (h >= 25 && h <= 100)); const mid = t.box.x + t.box.w / 2; return woody && t.box.h * ky >= 1.3 * t.box.w * kx && t.box.w < 0.5 * c.box.w && mid > c.box.x + 0.2 * c.box.w && mid < c.box.x + 0.8 * c.box.w && t.box.y < c.box.y + c.box.h && t.box.y + t.box.h > c.box.y + c.box.h; }));
+    if (crowns.length) { guess.words.push("tree"); guess.crowns = new Set(crowns); }
+    const big = solids.filter((s) => !s.soft && (s.alpha ?? 1) >= 0.9).sort((p, q) => area(q.box) - area(p.box))[0];
+    const bigTone = big && toneOfFill(big.fill);
+    if (big && bigTone) {
+      const hb = big.box, L = bigTone;
+      const within = solids.filter((s) => s !== big && s.box.x >= hb.x - 0.05 * hb.w && s.box.x + s.box.w <= hb.x + 1.05 * hb.w && s.box.y >= hb.y - 0.3 * hb.h && s.box.y + s.box.h <= hb.y + 1.05 * hb.h);
+      const rectLike = (s) => { if (s.tag === "rect") return true; const p = uniq(s.pts); if (p.length !== 4 || s.curves) return false; const b = bboxOf(p); return areaOfPoly(p) >= 0.9 * b.w * b.h; };
+      // Tower: a tall narrow solid with a band across it and a cap on top
+      // (a lighthouse, a chimney).
+      const tallHost = hb.h * ky >= 2.2 * hb.w * kx && area(hb) >= 0.004 * A;
+      const band = within.some((s) => s.box.w >= 0.7 * hb.w && s.box.h <= 0.32 * hb.h && s.box.y > hb.y + 0.1 * hb.h && lab(s) && Math.abs(lab(s)[0] - L[0]) >= 0.1);
+      const cap = within.some((s) => s.box.y + s.box.h <= hb.y + 0.2 * hb.h && s.box.y < hb.y && s.box.w >= 0.5 * hb.w);
+      if (tallHost && band && cap) guess.words.push("tower");
+      // Rock: a big gray or gray-brown mass cut from straight edges, with
+      // planes of the same family inside it and no boxes or discs.
+      const inner = within.filter((s) => s.box.y >= hb.y && area(s.box) >= 0.003 * area(hb));
+      // Its planes are faceted too (straight edges, six points or more) and
+      // stay dull: grays, with at most a warm lit face.
+      const dull = (s) => { const l = lab(s); return !!l && chromaOf(l) <= 0.09 && s.segs.length >= 6 && s.curves <= 0.2 * s.segs.length; };
+      const stony = L[0] >= 0.2 && L[0] <= 0.72 && chromaOf(L) <= 0.06 && big.segs.length >= 8 && big.curves <= 0.2 * big.segs.length && area(hb) >= 0.02 * A && Math.max(hb.w * kx, hb.h * ky) <= 3.5 * Math.min(hb.w * kx, hb.h * ky);
+      if (!tallHost && stony && inner.length >= 2 && inner.filter(dull).length >= 0.8 * inner.length && !shapes.some((s) => s.tag === "circle" || s.tag === "ellipse" || (s !== big && s.fill && !field(s.box) && rectLike(s)))) guess.words.push("rock");
+    }
+  }
+  // gate: the name the subject rules test. named(): the object in messages.
+  const gate = generic ? guess.words.join(" ") : (opts.name || "");
+  const named = (fallback) => (generic || !opts.name ? fallback : opts.name);
   // A closed outline with no fill and a few curves is a drawn circle or ellipse
   // (a compass line around the picture), never a painted form.
   const outlines = shapes.filter((s) => !s.fill && s.stroke && s.closed && s.segs.length <= 8 && !field(s.box) && area(s.box) >= 0.01 * A);
@@ -479,7 +623,7 @@ function lintSvg(svg, opts) {
   }
   // A ribbon cloud: one long smooth strip laid across the sky (a sausage),
   // not a mass of soft lumps with sky between them.
-  if (/\b(sky|skies|clouds?)\b/i.test(opts.name || "")) {
+  if (/\b(sky|skies|clouds?)\b/i.test(gate)) {
     const seaTop = (shapes.filter((s) => s.fill && s.closed && field(s.box) && s.box.w >= 0.85 * vb.w && s.box.y + s.box.h >= vb.y + 0.9 * vb.h && s.box.y > vb.y + 0.05 * vb.h).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0] || { box: { y: vb.y + 0.7 * vb.h } }).box.y;
     const ribbon = (s) => {
       const P = outlineOf(s);
@@ -490,7 +634,7 @@ function lintSvg(svg, opts) {
       const thick = (2 * ar) / Math.max(1, per), len = per / 2 - thick;
       return thick > 0 && len >= 0.1 * W && len >= 5 * thick;
     };
-    const rib = filled.filter((s) => s.closed && !s.fade && (s.alpha ?? 1) >= 0.6 && !field(s.box) && s.box.w < 0.9 * vb.w && s.box.y + s.box.h <= seaTop && s.curves >= 0.6 * s.segs.length && ribbon(s));
+    const rib = filled.filter((s) => (!guess.clouds || guess.clouds.has(s)) && s.closed && !s.fade && (s.alpha ?? 1) >= 0.6 && !field(s.box) && s.box.w < 0.9 * vb.w && s.box.y + s.box.h <= seaTop && s.curves >= 0.6 * s.segs.length && ribbon(s));
     if (rib.length) add("ribbon-cloud", `${rib.length === 1 ? "a long smooth strip" : rib.length + " long smooth strips"} laid across the sky, e.g. at ${where(rib[0].box)} (a sausage cloud)`, "A cloud is not a sausage: build it from several overlapping soft masses of different sizes, a lit top edge and a flatter, darker base, broken into pieces with sky between them.", rib);
   }
 
@@ -682,9 +826,9 @@ function lintSvg(svg, opts) {
 
   // Faceted soft things: a cloud, smoke, foam, a bush or a tree crown drawn
   // with straight segments only reads as a low-poly cut-out.
-  if (/\b(clouds?|smoke|steam|mist|fog|foam|surf|bush(es)?|shrubs?|trees?|crowns?|canopy|foliage|hedges?)\b/i.test(opts.name || "")) {
-    const facet = filled.filter((s) => !field(s.box) && area(s.box) >= 0.002 * A && s.segs.length >= 6 && s.curves < 0.3 * s.segs.length);
-    if (facet.length) add("faceted", `${opts.name} is built from straight segments (${facet.length} faceted shape${facet.length === 1 ? "" : "s"}, e.g. at ${where(facet[0].box)})`, "Soft things have soft edges: draw the outline with curves (C or Q) of different sizes, lumps that overlap, and a soft, broken underside, not straight cuts.", facet);
+  if (generic ? !!guess.crowns : /\b(clouds?|smoke|steam|mist|fog|foam|surf|bush(es)?|shrubs?|trees?|crowns?|canopy|foliage|hedges?)\b/i.test(opts.name || "")) {
+    const facet = filled.filter((s) => (!generic || guess.crowns.has(s)) && !field(s.box) && area(s.box) >= 0.002 * A && s.segs.length >= 6 && s.curves < 0.3 * s.segs.length);
+    if (facet.length) add("faceted", `${named("the tree crown")} is built from straight segments (${facet.length} faceted shape${facet.length === 1 ? "" : "s"}, e.g. at ${where(facet[0].box)})`, "Soft things have soft edges: draw the outline with curves (C or Q) of different sizes, lumps that overlap, and a soft, broken underside, not straight cuts.", facet);
   }
 
   // Floating ovals: smooth, nearly elliptical blobs lying inside a bigger
@@ -804,7 +948,7 @@ function lintSvg(svg, opts) {
   // A tower painted as a flat column with a band across it and a cut-off
   // foot (the stock lighthouse): no light turning on the form, and nothing
   // spreading where it meets the rock.
-  if (/\b(lighthouses?|towers?|chimneys?|minarets?|spires?|turrets?|silos?|beacons?)\b/i.test(opts.name || "") && !/\b(surf|foam|spray|waves?|glow|light|reflection)\b/i.test(opts.name || "")) {
+  if (/\b(lighthouses?|towers?|chimneys?|minarets?|spires?|turrets?|silos?|beacons?)\b/i.test(gate) && !/\b(surf|foam|spray|waves?|glow|light|reflection)\b/i.test(opts.name || "")) {
     const solid1 = filled.filter((s) => !field(s.box) && s.closed && !s.soft && (s.alpha ?? 1) >= 0.9 && labOf(s.fill));
     const host = solid1.sort((a, b) => area(b.box) - area(a.box))[0];
     if (host && host.box.h >= 2 * host.box.w) {
@@ -814,11 +958,12 @@ function lintSvg(svg, opts) {
       const planes = inner.filter((s) => area(s.box) >= 0.05 * area(hb));
       const hostL = (labOf(host.fill) || [0])[0];
       const shade = planes.filter((s) => !bands.includes(s) && (() => { const L = labOf(s.fill); return L && Math.abs(L[0] - hostL) >= 0.08; })());
-      if (shade.length === 0 && bands.length <= 2) add("tower-form", `${opts.name} at ${where(hb)} is one flat column${bands.length ? ` with ${bands.length === 1 ? "one flat band" : "two flat bands"} across it` : ""} and no light or shade on its form`, "A round tower turns: a lit side facing the light, a core shadow curving in from the far side with a half-tone before it, and a little reflected light at the far edge. Paint the bands as ellipses that dip at the sides, not strips cut across.", [host]);
+      if (shade.length === 0 && bands.length <= 2) add("tower-form", `${named("the tower")} at ${where(hb)} is one flat column${bands.length ? ` with ${bands.length === 1 ? "one flat band" : "two flat bands"} across it` : ""} and no light or shade on its form`, "A round tower turns: a lit side facing the light, a core shadow curving in from the far side with a half-tone before it, and a little reflected light at the far edge. Paint the bands as ellipses that dip at the sides, not strips cut across.", [host]);
       // Nothing spreads at its foot: the plinth or the rock it stands on.
       const foot = inner.filter((s) => s.box.w >= 1.02 * hb.w && s.box.y + s.box.h >= hb.y + 0.8 * hb.h);
       const contact = inner.some((s) => s.box.w >= 0.8 * hb.w && s.box.h <= 0.1 * hb.h && s.box.y + s.box.h >= hb.y + 0.9 * hb.h);
-      if (!foot.length && !contact.length) add("tower-foot", `${opts.name} ends on a flat cut at ${where({ x: hb.x, y: hb.y + hb.h - 0.08 * hb.h, w: hb.w, h: 0.08 * hb.h })} with nothing spreading under it (no footing)`, "Give the tower a footing where it meets the rock: a wider plinth that steps out, uneven, with the shadow of the tower falling on it and a few loose stones at its base, so it stands on something.", [host]);
+      // A guessed tower may be a bottle or a post: the footing advice is only for a named one.
+      if (!generic && !foot.length && !contact.length) add("tower-foot", `${opts.name} ends on a flat cut at ${where({ x: hb.x, y: hb.y + hb.h - 0.08 * hb.h, w: hb.w, h: 0.08 * hb.h })} with nothing spreading under it (no footing)`, "Give the tower a footing where it meets the rock: a wider plinth that steps out, uneven, with the shadow of the tower falling on it and a few loose stones at its base, so it stands on something.", [host]);
     }
   }
   // A hanging shadow: one dark drop under an object's body, below where it
@@ -851,12 +996,12 @@ function lintSvg(svg, opts) {
         if (run.length > best.length) best = run;
       }
       const span = best.length ? best[best.length - 1].box.x + best[best.length - 1].box.w - best[0].box.x : 0;
-      if (best.length >= 3 && span >= 0.5 * hb.w) add("vertical-bands", `${opts.name || "the object"} is split into ${best.length} tall bands standing side by side at ${where(hb)} (light, mid and dark as full-height strips)`, "Planes are not strips: break the mass into facets of different sizes and shapes that meet at angles, a big lit top plane, a shadowed side that turns under, smaller chips and ledges; no seam runs the full height.", best);
+      if (best.length >= 3 && span >= 0.5 * hb.w) add("vertical-bands", `${named("the object")} is split into ${best.length} tall bands standing side by side at ${where(hb)} (light, mid and dark as full-height strips)`, "Planes are not strips: break the mass into facets of different sizes and shapes that meet at angles, a big lit top plane, a shadowed side that turns under, smaller chips and ledges; no seam runs the full height.", best);
     }
   }
   // Split tone: a tall building cut down its height into flat full-height
   // strips (light, dark) meeting at straight seams, not a turning form.
-  if (/\b(lighthouses?|towers?|chimneys?|columns?|pillars?|silos?|minarets?|spires?|turrets?)\b/i.test(opts.name || "")) {
+  if (/\b(lighthouses?|towers?|chimneys?|columns?|pillars?|silos?|minarets?|spires?|turrets?)\b/i.test(gate)) {
     const solid = filled.filter((s) => !field(s.box) && s.closed && !s.soft && (s.alpha ?? 1) >= 0.9 && labOf(s.fill));
     const tallest = Math.max(0, ...solid.map((s) => s.box.h));
     const tall = solid.filter((s) => s.box.h >= 0.6 * tallest);
@@ -867,24 +1012,24 @@ function lintSvg(svg, opts) {
       if (hb.h >= 1.8 * hb.w) {
         const tallP = tall.filter((s) => s.box.w >= 0.15 * hb.w && s.box.w <= 0.7 * hb.w);
         const pair = tallP.find((l) => tallP.some((r) => r !== l && r.box.x > l.box.x && Math.abs(r.box.x - (l.box.x + l.box.w)) <= 0.06 * hb.w && Math.abs(labOf(l.fill)[0] - labOf(r.fill)[0]) >= 0.12));
-        if (pair) add("split-tone", `${opts.name || "the object"} is split down its height into flat light and dark strips at ${where(hb)} (hard straight seams)`, "A round form turns from light to shadow: lay a core shadow that curves with the form a little in from the dark side, with a narrow half-tone before it and a little reflected light at the far edge, so there is no single straight seam.", [pair]);
+        if (pair) add("split-tone", `${named("the object")} is split down its height into flat light and dark strips at ${where(hb)} (hard straight seams)`, "A round form turns from light to shadow: lay a core shadow that curves with the form a little in from the dark side, with a narrow half-tone before it and a little reflected light at the far edge, so there is no single straight seam.", [pair]);
       }
     }
   }
   // See-through shade: a dark flat shape at partial opacity laid over a
   // building or rock to shade it (a plaid veil), not an opaque plane in the
   // object's own hue.
-  if (/\b(lighthouses?|towers?|houses?|cottages?|buildings?|churche?s?|barns?|chimneys?|rocks?|rocky|cliffs?|crags?|boulders?|headland|outcrop)\b/i.test(opts.name || "")) {
+  if (/\b(lighthouses?|towers?|houses?|cottages?|buildings?|churche?s?|barns?|chimneys?|rocks?|rocky|cliffs?|crags?|boulders?|headland|outcrop)\b/i.test(gate)) {
     const host = filled.filter((s) => !field(s.box) && s.closed).sort((m, n) => area(n.box) - area(m.box))[0];
     if (host) {
       const hb = host.box;
       const veils = shapes.filter((s) => s !== host && s.fill && s.closed && !s.soft && !s.fade && !/url\(/.test(s.fill) && (s.alpha ?? 1) >= 0.2 && (s.alpha ?? 1) <= 0.85 && (labOf(s.fill) || [1])[0] < 0.5 && area(s.box) >= 0.04 * area(hb) && Math.max(0, Math.min(s.box.x + s.box.w, hb.x + hb.w) - Math.max(s.box.x, hb.x)) * Math.max(0, Math.min(s.box.y + s.box.h, hb.y + hb.h) - Math.max(s.box.y, hb.y)) >= 0.8 * area(s.box));
-      if (veils.length) add("see-through-shade", `a dark see-through shape laid over ${opts.name || "the object"} to shade it, at ${where(veils[0].box)} (a veil, so the bands and planes show through it)`, "Shade with opaque color: each band or plane gets its own darker, cooler version on the shadow side, painted as part of it, not a dark film laid over everything.", veils);
+      if (veils.length) add("see-through-shade", `a dark see-through shape laid over ${named("the object")} to shade it, at ${where(veils[0].box)} (a veil, so the bands and planes show through it)`, "Shade with opaque color: each band or plane gets its own darker, cooler version on the shadow side, painted as part of it, not a dark film laid over everything.", veils);
     }
   }
   // Stamped holes: three or more small pieces of one color set apart on a
   // rock face (pasted crevices or shadow spots), not planes that meet.
-  if (/\b(rocks?|rocky|cliffs?|crags?|stones?|boulders?|bluffs?|headland|outcrop|hills?|mountains?|ground|lighthouse|tower|beacon)\b/i.test(opts.name || "")) {
+  if (/\b(rocks?|rocky|cliffs?|crags?|stones?|boulders?|bluffs?|headland|outcrop|hills?|mountains?|ground|lighthouse|tower|beacon)\b/i.test(gate)) {
     const host = filled.filter((s) => !field(s.box) && s.closed).sort((a, b) => area(b.box) - area(a.box))[0];
     if (host) {
       const hb = host.box;
@@ -894,7 +1039,8 @@ function lintSvg(svg, opts) {
       const bottomOpen = hb.y + hb.h < vb.y + 0.9 * vb.h;
       const touchesEdge = hb.x <= vb.x + 0.02 * vb.w || hb.x + hb.w >= vb.x + 0.98 * vb.w;
       const under = filled.some((s) => s !== host && !field(s.box) && s.box.y <= hb.y + hb.h + 0.03 * vb.h && s.box.y + s.box.h >= hb.y + hb.h - 0.03 * vb.h && Math.min(s.box.x + s.box.w, hb.x + hb.w) - Math.max(s.box.x, hb.x) > 0.2 * hb.w);
-      if (bottomOpen && !touchesEdge && !under && /\b(headland|island|outcrop|rocks?|rocky|cliffs?|crags?|bluffs?)\b/i.test(opts.name || "")) add("floating-rock", `${opts.name} is a rock that hangs above the water at ${where(hb)} with nothing under its base (a floating cone, not a headland)`, "A headland is land: anchor it to the frame's edge or the bottom, with a cliff that runs down into the water and a shelf of rock where it meets the sea. Draw the land in the foreground, not one shape in the middle of the sea.", [host]);
+      // Only for a rock named as one: a guess is not enough to say where it stands.
+      if (!generic && bottomOpen && !touchesEdge && !under && /\b(headland|island|outcrop|rocks?|rocky|cliffs?|crags?|bluffs?)\b/i.test(opts.name || "")) add("floating-rock", `${opts.name} is a rock that hangs above the water at ${where(hb)} with nothing under its base (a floating cone, not a headland)`, "A headland is land: anchor it to the frame's edge or the bottom, with a cliff that runs down into the water and a shelf of rock where it meets the sea. Draw the land in the foreground, not one shape in the middle of the sea.", [host]);
       const bits = filled.filter((s) => s !== host && s.closed && area(s.box) >= 0.0008 * A && area(s.box) <= 0.04 * area(hb) && s.box.x > hb.x && s.box.y > hb.y && s.box.x + s.box.w < hb.x + hb.w && s.box.y + s.box.h < hb.y + hb.h);
       const groups = [];
       for (const s of bits) { const L = labOf(s.fill); const g = L && groups.find((x) => Math.hypot(x.L[0] - L[0], x.L[1] - L[1], x.L[2] - L[2]) < 0.08); if (g) g.list.push(s); else if (L) groups.push({ L, list: [s] }); }
@@ -907,7 +1053,7 @@ function lintSvg(svg, opts) {
         const inner = filled.filter((s) => s !== host && s.closed && !s.soft && area(s.box) >= 0.003 * area(hb));
         const big = inner.filter((s) => area(s.box) >= 0.06 * area(hb));
         const smallN = inner.length - big.length;
-        if (big.length >= 2 && big.length <= 8 && smallN < 4 && area(hb) >= 0.04 * A) add("big-planes", `${opts.name || "the rock"} is ${big.length} big flat planes with almost no smaller facets (${smallN} small ones), at ${where(hb)} (low-poly)`, "Big planes are a start, not a finish: break each into smaller facets of different sizes, add cracks that run along plane edges, ledges with a lit top and a shadow under them, and a few loose stones at the base; let the outline turn at many small corners.", big);
+        if (big.length >= 2 && big.length <= 8 && smallN < 4 && area(hb) >= 0.04 * A) add("big-planes", `${named("the rock")} is ${big.length} big flat planes with almost no smaller facets (${smallN} small ones), at ${where(hb)} (low-poly)`, "Big planes are a start, not a finish: break each into smaller facets of different sizes, add cracks that run along plane edges, ledges with a lit top and a shadow under them, and a few loose stones at the base; let the outline turn at many small corners.", big);
       }
       // A decal: a small straight-sided patch of 3 to 6 corners set well
       // inside the face, touching nothing (a sticker, not a plane).
@@ -1113,11 +1259,11 @@ function lintSvg(svg, opts) {
   // shapes are laid on one grid; a wide cloud whose underside is one smooth
   // run (flat or a single arc), or whose top is a row of even scallops, is
   // the stock cloud.
-  if (/\b(clouds?|cloudbank)\b/i.test(opts.name || "")) {
+  if (/\b(clouds?|cloudbank)\b/i.test(gate)) {
     // Each cloud on its own: shapes whose boxes overlap form one cloud.
     // A blur softens the edge but keeps the silhouette, so blurred shapes that
     // are mostly opaque count too (a stock cloud with a blur filter is still stock).
-    const cAll = shapes.filter((s) => s.fill && !s.fade && (!s.soft || s.alpha >= 0.6) && !field(s.box) && s.closed && s.pts.length >= 3);
+    const cAll = shapes.filter((s) => (!guess.clouds || guess.clouds.has(s)) && s.fill && !s.fade && (!s.soft || s.alpha >= 0.6) && !field(s.box) && s.closed && s.pts.length >= 3);
     const groups = [];
     for (const s of cAll) {
       const touching = groups.filter((g) => g.some((o) => hits(s, o)));
@@ -1239,7 +1385,153 @@ function lintSvg(svg, opts) {
     }
   }
 
-  return { problems, stats: { shapes: shapes.length, filled: filled.length, colors: fills.size } };
+  // A four-point sparkle is the stock "magic" mark. A star, a compass or a
+  // glint that was asked for (by name or in the ask) may keep the shape.
+  if (!SPARKLE_OK.test(`${opts.name || ""} ${opts.ask || ""}`)) {
+    const sp = shapes.filter((s) => isSparkle(s, kx, ky));
+    if (sp.length) add("sparkle", `a four-point sparkle at ${where(sp[0].box)}${sp.length > 1 ? ` (and ${sp.length - 1} more)` : ""}: the stock shine mark`, "Take the sparkle out. Show light with a lighter plane where it lands, or draw a star as a small uneven point.", sp);
+  }
+  // One outline width on everything: a real line swells and thins.
+  {
+    const lined = shapes.filter((s) => s.fill && s.outlined && !s.soft && !field(s.box) && s.sw * Math.min(kx, ky) >= 0.75);
+    const every = shapes.filter((s) => s.outlined && s.sw > 0).map((s) => s.sw);
+    if (lined.length >= 6 && every.length && Math.max(...every) <= 1.1 * Math.min(...every)) add("one-stroke-width", `all ${lined.length} outlined shapes carry the same line width (${+(lined[0].sw * Math.min(kx, ky)).toFixed(1)} px)`, "Vary the line: heavier under the object and on its shadow side, thinner toward the light and on inside detail. Or drop the outlines and let the fills make the edges.");
+  }
+  // A part that stops a hair short of the rest reads as not attached.
+  if (!/\b(tiles?|bricks?|stones?|pebbles?|cobbles?|stars?|rain|snow|leaves|petals?|birds?|flock|fish|bubbles?|confetti|mosaic|stained|pattern|keys|fence|crowd|islands?|clouds?|sky|skies|sea|water|waves?|foam|spray|surf|sparks?|dots?)\b/i.test(opts.name || "")) {
+    const tol = 0.012 * Math.min(W, H), hair = 0.0025 * Math.min(W, H);
+    const parts = shapes.filter((s) => s.fill && s.closed && !s.soft && !s.fade && (s.alpha ?? 1) >= 0.8 && !field(s.box) && !/data-jdraw-plane/.test(s.raw || "") && area(s.box) >= 0.0005 * A);
+    if (parts.length >= 2 && parts.length <= 120) {
+      const px = (s) => fineOutline(s).map((q) => [q[0] * kx, q[1] * ky]);
+      const O = parts.map(px);
+      const far = (a, b) => a.box.x * kx > (b.box.x + b.box.w) * kx + tol || b.box.x * kx > (a.box.x + a.box.w) * kx + tol || a.box.y * ky > (b.box.y + b.box.h) * ky + tol || b.box.y * ky > (a.box.y + a.box.h) * ky + tol;
+      const loose = [];
+      for (let i = 0; i < parts.length; i++) {
+        let near = Infinity, touches = false;
+        for (let j = 0; j < parts.length && !touches; j++) {
+          if (i === j || far(parts[i], parts[j])) continue;
+          const d = outlineGap(O[i], O[j], tol + 1);
+          if (d <= hair) touches = true; else if (d < near) near = d;
+        }
+        if (!touches && near <= tol) loose.push({ s: parts[i], gap: near });
+      }
+      // Many such parts are a pattern (tiles, stones in a row), not a miss.
+      if (loose.length >= 1 && loose.length <= 4) {
+        const worst = loose.slice().sort((a, b) => area(b.s.box) - area(a.s.box))[0];
+        add("loose-part", `a part at ${where(worst.s.box)} stops ${Math.max(1, Math.round(worst.gap))} px short of the shape next to it and touches nothing${loose.length > 1 ? ` (${loose.length} parts like this)` : ""}`, "Join it: overlap the part into the form it belongs to, or move it clearly away so the gap reads as meant.", loose.map((l) => l.s));
+      }
+    }
+  }
+
+  return { problems, stats: { shapes: shapes.length, filled: filled.length, colors: fills.size, guessed: guess.words.slice(), genericName: generic } };
+}
+
+const SPARKLE_OK = /\b(sparkles?|stars?|starry|twinkl\w*|compass|glints?|north|magic|wand|snowflakes?|fireworks?)\b/i;
+const textsOf = (svg) => [...String(svg).matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/gi)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim()).filter(Boolean);
+
+// The rule set for icon, logo and diagram asks. Clean flat work is meant to
+// be simple, so none of the scenery rules run here (plain shapes, even
+// outlines, flat tones and mirror symmetry are all fine). What is refused is
+// the stock mark: the shapes a logo gets when nobody chose one.
+// opts as lintSvg, plus ask (what the person asked for) and kind:
+// "mark" for an icon or a logo, anything else for other clean looks.
+function lintClean(svg, opts) {
+  const { vb, W, H } = opts;
+  const kx = opts.w / (vb.w || 1), ky = opts.h / (vb.h || 1);
+  const shapes = shapesOf(svg);
+  const problems = [];
+  const where = (b) => `x ${Math.round(opts.x + (b.x - vb.x) * kx)}-${Math.round(opts.x + (b.x - vb.x + b.w) * kx)}, y ${Math.round(opts.y + (b.y - vb.y) * ky)}-${Math.round(opts.y + (b.y - vb.y + b.h) * ky)}`;
+  const add = (rule, what, fix, els) => { if (!problems.some((q) => q.rule === rule)) problems.push({ rule, what, fix, els: (els || []).map((e) => e.raw).filter(Boolean) }); };
+  const said = `${opts.name || ""} ${opts.ask || ""}`;
+  const vbA = (vb.w * vb.h) || 1;
+  const big = Math.max(vb.w, vb.h) || 1;
+  const centre = (b) => [b.x + b.w / 2, b.y + b.h / 2];
+
+  if (!SPARKLE_OK.test(said)) {
+    const sp = shapes.filter((s) => isSparkle(s, kx, ky));
+    if (sp.length) add("sparkle", `a four-point sparkle at ${where(sp[0].box)}${sp.length > 1 ? ` (and ${sp.length - 1} more)` : ""}: the stock shine mark`, "Take the sparkle out. Say what the thing does with a shape of its own.", sp);
+  }
+  if (opts.kind !== "mark") return { problems, stats: { shapes: shapes.length } };
+
+  // Orbit ring: a thin tilted ellipse around a mark, two rings on one centre
+  // (the atom), or a round ring with a dot riding on it.
+  if (!/\b(orbits?|planets?|saturn|atoms?|atomic|space|satellites?|rings?|galaxy|astronomy|science|physics|electrons?|globe|solar|target|radar)\b/i.test(said)) {
+    const rings = shapes.filter((s) => !s.fill && s.outlined && s.closed && (s.tag === "circle" || s.tag === "ellipse" || (s.segs.length >= 2 && s.segs.length <= 8 && s.curves >= 0.8 * s.segs.length)) && s.box.w * s.box.h >= 0.08 * vbA).map((s) => {
+      const P = fineOutline(s), [cx, cy] = [P.reduce((a, q) => a + q[0], 0) / P.length, P.reduce((a, q) => a + q[1], 0) / P.length];
+      let xx = 0, yy = 0, xy = 0;
+      for (const q of P) { xx += (q[0] - cx) ** 2; yy += (q[1] - cy) ** 2; xy += (q[0] - cx) * (q[1] - cy); }
+      const tr = xx + yy, det = xx * yy - xy * xy, disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+      const l1 = tr / 2 + disc, l2 = Math.max(1e-9, tr / 2 - disc);
+      return { s, cx, cy, long: Math.sqrt(2 * l1 / P.length), short: Math.sqrt(2 * l2 / P.length), aspect: Math.sqrt(l1 / l2) };
+    });
+    const marks = shapes.filter((s) => s.fill && s.closed && !s.soft);
+    const tilted = rings.filter((r) => r.aspect >= 1.3);
+    const around = tilted.find((r) => marks.some((m) => { const [mx, my] = centre(m.box); return Math.hypot(mx - r.cx, my - r.cy) <= 0.25 * r.long && Math.max(m.box.w, m.box.h) < 1.7 * r.long && Math.max(m.box.w, m.box.h) >= 0.25 * r.long; }));
+    const pair = tilted.find((r) => tilted.some((o) => o !== r && Math.hypot(o.cx - r.cx, o.cy - r.cy) <= 0.12 * r.long));
+    const ridden = rings.find((r) => r.aspect < 1.3 && marks.some((m) => { const [mx, my] = centre(m.box); const d = Math.hypot(mx - r.cx, my - r.cy); return Math.max(m.box.w, m.box.h) <= 0.5 * r.long && Math.abs(d - r.long) <= 0.15 * r.long; }) && marks.some((m) => { const [mx, my] = centre(m.box); return Math.hypot(mx - r.cx, my - r.cy) <= 0.25 * r.long && Math.max(m.box.w, m.box.h) <= 1.4 * r.long; }));
+    const hit = around || pair || ridden;
+    if (hit) add("logo-orbit", `an orbit ring at ${where(hit.s.box)}${pair && !around ? " (rings crossed on one centre)" : ridden && !around ? " (a dot riding a ring)" : " around the mark"}: the stock tech logo`, "Drop the ring. Build the mark from something this subject has and others do not.", [hit.s]);
+  }
+
+  // One or two letters set in a tile, and little else.
+  {
+    const texts = textsOf(svg);
+    const glyph = texts.length === 1 && /^[A-Za-z0-9]{1,2}$/.test(texts[0]) ? texts[0] : null;
+    const esc = glyph ? glyph.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "";
+    const asked = /\b(letters?|monograms?|initials?|word\s?marks?|letter\s?marks?|text (icon|logo|mark)|typographic|lettering)\b/i.test(said) || (glyph && new RegExp(`["'\u201c\u2018]${esc}["'\u201d\u2019]`).test(said)) || (glyph && glyph.length === 2 && new RegExp(`\\b${esc}\\b`).test(said));
+    if (glyph && !asked) {
+      const solid = shapes.filter((s) => s.fill && s.closed && !s.soft);
+      const tile = solid.filter((s) => s.box.w * s.box.h >= 0.55 * vbA && s.box.w <= 1.25 * s.box.h && s.box.h <= 1.25 * s.box.w).sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0];
+      const rest = solid.filter((s) => s !== tile && s.box.w * s.box.h < 0.5 * vbA && s.box.w * s.box.h >= 0.004 * vbA);
+      if (tile && rest.length <= 2) add("letter-tile", `the mark is the letter${glyph.length > 1 ? "s" : ""} "${glyph}" in a tile at ${where(tile.box)}: the default app icon`, "Draw a mark that shows what the thing is or does. Keep a letter only when the ask says to use one.", [tile]);
+    }
+  }
+
+  // Swoosh: a long thin crescent, both edges bowing the same way between two points.
+  if (!/\b(swoosh\w*|waves?|wavy|moons?|crescents?|night|sleep|lea(f|ves)|feathers?|wings?|birds?|bananas?|smil\w*|faces?|emoji|mouths?|happy|horns?|boomerangs?|sails?|wind|water|rivers?|roads?|paths?|eyes?|brows?|scythes?|sickles?|claws?|tusks?|fangs?|bows?)\b/i.test(said)) {
+    // A crescent that lies inside a bigger shape is a shadow plane, a crease
+    // or a mouth, not a swoosh. A tile or backdrop behind the whole mark
+    // does not count as that bigger shape.
+    const solids = shapes.filter((o) => o.fill && o.closed && !o.soft && o.box.w * kx * o.box.h * ky < 0.55 * W * H).map((o) => ({ o, P: fineOutline(o) }));
+    const inside = (s, O) => solids.some(({ o, P }) => o !== s && o.box.w * o.box.h > 1.3 * s.box.w * s.box.h && P.length >= 3 && O.filter((q) => inPoly(P, q[0], q[1])).length >= 0.7 * O.length);
+    const lune = shapes.filter((s) => s.fill && s.closed && !s.soft && s.tag === "path").find((s) => {
+      const on = uniq(s.pts);
+      if (on.length < 2 || on.length > 4 || s.curves < 2 || s.curves < s.segs.filter((g) => Math.hypot(g.b[0] - g.a[0], g.b[1] - g.a[1]) > 0.02 * big).length) return false;
+      let a = on[0], b = on[1], far = 0;
+      for (const u of on) for (const v of on) { const d = Math.hypot(u[0] - v[0], u[1] - v[1]); if (d > far) { far = d; a = u; b = v; } }
+      if (far < 0.55 * big) return false;
+      const O = outlineOf(s);
+      const side = (q) => ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0])) / far;
+      const near = (q, t) => Math.hypot(q[0] - t[0], q[1] - t[1]) < 1e-6;
+      const ia = O.findIndex((q) => near(q, a)), ib = O.findIndex((q) => near(q, b));
+      if (ia < 0 || ib < 0 || ia === ib) return false;
+      const lo = Math.min(ia, ib), hi = Math.max(ia, ib);
+      const c1 = O.slice(lo + 1, hi).map(side), c2 = O.slice(hi + 1).concat(O.slice(0, lo)).map(side);
+      if (!c1.length || !c2.length) return false;
+      const peak = (c) => c.reduce((m, v) => (Math.abs(v) > Math.abs(m) ? v : m), 0);
+      const p1 = peak(c1), p2 = peak(c2);
+      if (p1 * p2 <= 0) return false; // the edges bow apart: a leaf or a lens, not a swoosh
+      const inner = Math.min(Math.abs(p1), Math.abs(p2)), outer = Math.max(Math.abs(p1), Math.abs(p2));
+      // Thin: a croissant, a hull or a bowl is a crescent too, but a fat one.
+      return inner >= 0.08 * far && outer - inner <= 0.13 * far && c1.every((v) => v * p1 >= -0.02 * far) && c2.every((v) => v * p2 >= -0.02 * far) && !inside(s, O);
+    });
+    if (lune) add("logo-swoosh", `a swoosh at ${where(lune.box)}: a thin crescent sweeping across the mark`, "Drop the swoosh. If the mark needs motion, build it into the main shape.", [lune]);
+  }
+
+  // Gradient blob: a gradient that slides into purple or magenta from another hue.
+  if (!/\b(gradients?|rainbows?|sunsets?|sunrises?|dusk|dawn|twilight|aurora|colou?rful|multi[\s-]?colou?r(ed)?|spectrum|holograph\w*|iridescent|neon|purple|violet|magenta|pink|grapes?|plums?|lavender|berr(y|ies)|galaxy|nebula)\b/i.test(said)) {
+    const stops = gradientStops(svg);
+    const loud = (id) => {
+      const L = (stops.get(id) || []).filter((l) => chromaOf(l) >= 0.06);
+      const purple = L.filter((l) => { const h = hueDeg(l); return h >= 285 && h <= 350; });
+      return purple.some((q) => L.some((l) => { const d = Math.abs(hueDeg(l) - hueDeg(q)); return Math.min(d, 360 - d) >= 40; }));
+    };
+    const blobs = shapes.filter((s) => { const id = (String(s.fill || "").match(/url\(\s*#([^)\s]+)\s*\)/) || [])[1]; return id && loud(id) && (s.alpha ?? 1) >= 0.5; });
+    const cover = blobs.reduce((a, s) => a + s.box.w * s.box.h, 0);
+    if (blobs.length && cover >= 0.15 * vbA) add("gradient-blob", `a gradient that runs into purple or pink fills the mark at ${where(blobs[0].box)}: the stock AI gradient`, "Use one hue and let it get lighter or darker, or use flat colors picked for this subject.", blobs);
+  }
+
+  return { problems, stats: { shapes: shapes.length } };
 }
 
 // Last-try repair for outlines the drawer could not fix: a sawtooth or a
@@ -1819,5 +2111,5 @@ function structureRepair(svg, els, mode, light, vb, salt) {
   return { svg: out, fixed };
 }
 
-module.exports = { lintSvg, parsePath, shapesOf, parseTransform, repairOutlines, structureRepair, labOf, unmirror, addSwells };
+module.exports = { lintSvg, lintClean, textsOf, genericName, parsePath, shapesOf, parseTransform, repairOutlines, structureRepair, labOf, unmirror, addSwells };
 

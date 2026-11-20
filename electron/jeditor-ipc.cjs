@@ -28,6 +28,7 @@ const PREF_DEFAULTS = Object.freeze({
   windowsVoice: "", // a Windows voice name, empty = the system default
   micEngine: "auto", // auto | windows | elevenlabs
   micAutoSend: false, // send the message as soon as the words come back
+  slopGate: true, // refuse the default AI look in cards, animations and copy, and check a result after the turn
 });
 
 const ENUMS = {

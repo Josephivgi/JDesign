@@ -95,6 +95,7 @@ Read anti-slop first. This catalog is the long list behind it: the tells the use
 - Too much detail to read at 16 px. Check it small and in one color.
 - Text inside the icon. Leave it out.
 - A saturated full-color tile. Neutral base, small accent, or one color only.
+- JDraw refuses these in an icon or a logo: a four-point sparkle, an orbit ring, one or two letters in a tile, a swoosh, a gradient that runs into purple or pink.
 
 ## Logos
 - Circles, orbit rings, swirls, loops, sparks, leaves, shields, mountains, upward arrows: marks that fit hundreds of businesses. Ask what only this business has.

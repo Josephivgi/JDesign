@@ -77,13 +77,15 @@ function runPython(input, timeoutMs) {
 
 // render: async () => ({ base64 }) of the whole canvas.
 // keep: ids of the person's own items; the checker does not judge them.
-async function checkDrawing(doc, render, keep) {
+// opts: { ask, clean }: what the person asked for, and whether that was a
+// clean flat look (icon, logo, diagram), which skips the scene rules.
+async function checkDrawing(doc, render, keep, opts) {
   let png = "";
   try { png = (await render()).base64 || ""; } catch { /* shapes are still checked */ }
   if (!png) return { ok: null, error: "JDraw could not render the drawing for the color and composition checks." };
   const svgs = placedSvgs(doc, keep);
-  svgs.push({ svg: itemsToSvg(doc, keep), x: 0, y: 0, w: doc.width, h: doc.height, name: "drawn items" });
-  return runPython({ width: doc.width, height: doc.height, png, svgs });
+  svgs.push({ svg: itemsToSvg(doc, keep), x: 0, y: 0, w: doc.width, h: doc.height, name: "drawn items", native: true });
+  return runPython({ width: doc.width, height: doc.height, png, svgs, ask: (opts && opts.ask) || "", clean: !!(opts && opts.clean) });
 }
 
 // The checker's findings as a message an agent can act on.

@@ -79,6 +79,19 @@ Global rules still apply (writing-style, UI layers, no windows on the desktop, r
 - A render belongs to the project that made it (`state.renders[sourceId] = renderId`, items carry `projectIds`). Library and finished files dedupe by content hash, never by name.
 - Project state is replaced whole on `aiProjectUpdate`; read the row before writing (`patchState` in the editor).
 
+## Slop gate
+
+The Video studio turns down the default AI look in code, the way Draw's lint turns down a sloppy SVG. Everything is in `lib/slop/`.
+
+- At the tool call (`gate.js`, called from `callToolInner` in `lib/mcp-server.js` after a tool's own `validate` and before any approval prompt): `jeditor_set_card_html`, `jeditor_apply_edit`, `jeditor_render_animation`, `jeditor_tts`, `cards_set_code` and `cards_set_text` are checked by `design-lint.js` (HTML, CSS and script: color, type, layout, shape, decoration, motion), `copy-lint.js` (the words) and `pacing-lint.js` (scene lengths, transitions, entrances, narration, audio plan). A hard problem, or three different soft tells, is refused with `{ error, problems, next }`: each problem says what was found and what to write instead. `jeditor_animation_frames` and `jeditor_render_card` are previews, so they are never refused; the problems ride along as a `slopCheck` text block.
+- Budget: an in-app agent is refused three times in a row for one thing, then the call is kept with `landedWithProblems`. An outside agent (stdio, no chat) is refused once. A new message from the person resets the budget.
+- What the person asked for is never turned down. `electron/acp-host.cjs` hands the gate every line the person typed in the chat (`setAsked`), and `user-instructions.md` counts too. The linters read it sentence by sentence, so "no purple" unlocks nothing. A `style-*` skill the agent read in the chat unlocks what that skill allows.
+- A shipped preset is never blamed on the agent: the gate lints the same preset with nothing changed and drops those rule ids.
+- After the turn (`after-turn.js`, called from `prompt()` in `electron/acp-host.cjs`): when the turn ended by itself and a design, render or audio tool ran, `check.js` runs the three linters on the saved source and `frame-check.js` measures the rendered file with ffmpeg (purple or cyan-on-black dominance, oversaturation, one light in every scene, everything centered, a static picture, evenly spaced cuts, flat audio, text on screen too briefly). What reads as slop goes back to the same session as one fix request, at most `JEDITOR_GATE_ROUNDS` times (default 2, 0 turns it off). The chat shows one system row with `kind: "slop-gate"`. A gate error goes to `<data>/slop-gate.log` and never fails the turn.
+- Agents run the same check with `jeditor_check_slop` (`check-tool.js`).
+- Pref `slopGate` (default on, Settings > General) turns both halves off. `JEDITOR_SLOP_GATE=0` does the same for one run.
+- A new rule needs a fixture that must fire and a clean one that must not, and it must stay quiet on the shipped presets, the card templates and real agent work. Tests, all plain `node`: `npm run check:slop` (`scripts/slop-design-test.cjs`, `slop-copy-test.cjs`, `slop-check-test.cjs`, `slop-gate-test.cjs`).
+
 ## Library
 
 - Imports go through `api.addFiles({paths})` with `add-files-progress` events. A skipped duplicate is reported, never silent.

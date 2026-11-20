@@ -1,0 +1,16 @@
+{
+ "name": "Quill title card",
+ "kind": "title_card",
+ "html": "<div class=\"t\"><h1>Quill</h1><div class=\"rule\"></div><p class=\"sub\">A notebook app</p></div>",
+ "css": "body{background:var(--primary)} .t{position:absolute;left:9vw;top:50%;transform:translateY(-52%)} h1{margin:0;overflow:hidden;padding-bottom:.06em;font:700 26vmin var(--display);color:var(--text);line-height:1;letter-spacing:-.01em;animation:ink .6s cubic-bezier(.16,1,.3,1) both} @keyframes ink{from{transform:translateY(12%);opacity:0}to{transform:none;opacity:1}} .rule{height:.7vmin;width:30vw;background:var(--secondary);transform-origin:left;transform:scaleX(0);animation:draw .5s .5s cubic-bezier(.16,1,.3,1) both;margin:1vmin 0 2.6vmin} @keyframes draw{to{transform:scaleX(1)}} .sub{margin:0;font:400 4.6vmin var(--body);color:var(--text);opacity:0;animation:show .45s .85s ease-out both} @keyframes show{to{opacity:.9}}",
+ "vars": {
+  "display": "Constantia, Georgia, \"Palatino Linotype\", serif",
+  "body": "Corbel, \"Segoe UI\", sans-serif"
+ },
+ "colors": {
+  "primary": "#15191A",
+  "secondary": "#C98A3C",
+  "text": "#F1EAD9"
+ },
+ "durationMs": 2200
+}

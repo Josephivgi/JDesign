@@ -13,6 +13,7 @@
     "mcp:install": "node scripts/mcp-install.cjs",
     "check:mcp": "node scripts/mcp-tools-check.cjs",
     "check:mcp:errors": "node scripts/mcp-error-check.cjs",
+    "check:slop": "node scripts/slop-design-test.cjs && node scripts/slop-copy-test.cjs && node scripts/slop-check-test.cjs && node scripts/slop-gate-test.cjs",
     "quality": "node scripts/quality-report.cjs",
     "build:win": "electron-builder --win dir",
     "generate:icons": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-logo.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icon.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-appx-assets.ps1",

@@ -41,6 +41,15 @@ draw_svg checks each object and refuses it, with what to change, when it:
 - is a rock whose inner planes are big smooth curves, or a rock drawn with soft curves only
 - is a pen, pencil or calligraphy stroke that keeps one even pressure end to end (one dead-even line)
 - is a stroke that doubles back on itself again and again (scribble, not a pass)
+- holds a four-point sparkle (unless the ask or the object's name says star, sparkle or compass)
+- gives six or more outlined shapes one and the same outline width
+- has a part that stops a few pixels short of the rest and touches nothing (overlap it or move it clearly away)
+
+Name each object for what it is (cloud, rock, lighthouse, pine). With a name like "scene" or "part 2" JDraw guesses the object from its shape and color and checks it as that.
+
+For an icon or a logo none of the checks above run. draw_svg then refuses only the stock marks: a four-point sparkle, an orbit ring around the mark, one or two letters in a tile (unless the ask says to use a letter), a swoosh, and a gradient that runs into purple or pink. Text that reads as generated is refused in every kind of drawing.
+
+After the turn JDraw also measures the whole picture and reports: an object that just touches the canvas edge, two objects that almost touch, an object that hangs in the air above the ground, one shape repeated with small changes, the same amount of detail in every part of the picture, and strong color in more than half of it.
 
 Three refusals for one object, then a fourth try. On that try JDraw strips the decoration tells, smooths sawtooth edges, breaks ruled horizons and adds its own planes. A stock lens cloud is left out. Your own planes are better than JDraw's, so plan for them from the start.
 
