@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld("cutline", {
   setChrome: (payload) => ipcRenderer.invoke("set-chrome", Object.assign({}, payload, { accent: document.documentElement.dataset.accent || "mono" })),
   setStudio: (to) => ipcRenderer.invoke("studio-switch", to),
   currentStudio: () => ipcRenderer.invoke("studio-current"),
+  drawingsList: async () => {
+    const res = await ipcRenderer.invoke("drawings:list");
+    return res && res.ok ? res.value || [] : [];
+  },
+  studioOpenDrawing: (id) => ipcRenderer.invoke("studio-open-drawing", id),
   onStudioChanged: (handler) => {
     const listen = (_event, message) => handler(message);
     ipcRenderer.on("studio-changed", listen);

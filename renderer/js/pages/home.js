@@ -5,6 +5,7 @@ import { agentPickerButton, agentName, openAgentMenu, loadModels, modelPickerBut
 import { attachSlashMenu, fetchSlashCommands, workflowFor } from "../slash.js";
 import { mountGallery } from "../gallery.js";
 import { attachMic } from "../voice.js";
+import { mountChat } from "../chat.js";
 
 const RATIOS = [
   { id: "16/9", label: "16:9", sub: "YouTube, landscape" },
@@ -126,6 +127,24 @@ export function renderHome(main) {
   syncModel();
   main.innerHTML = '<div class="page" data-home><div class="page-inner" data-inner></div></div>';
   const inner = main.querySelector("[data-inner]");
+  // The unified chat is not bound to one project (projectId ""): the agent can
+  // draw with the Draw studio's tools or make and edit video projects. Its DOM
+  // node is kept here and re-slotted after every repaint so a turn in flight is
+  // never torn down by a projects list refresh.
+  const chatWrap = document.createElement("div");
+  chatWrap.className = "chat-card";
+  const chatApi = mountChat(chatWrap, {
+    projectId: "",
+    getProject: () => null,
+    selectedAssetId: () => "",
+    onProjectChanged: () => {
+      void refreshProjects();
+      void refreshDrawings();
+    },
+  });
+  const refreshDrawings = async () => {
+    store.drawings = api.drawingsList ? await api.drawingsList().catch(() => []) : [];
+  };
 
   const paint = () => {
     const projects = store.projects || [];
@@ -151,8 +170,17 @@ export function renderHome(main) {
         : "") +
       "</div>" +
       '<div data-proj-list>' + projectList(projects) + "</div>";
+    const drawings = store.drawings || [];
+    const drawingsHtml = drawings.length
+      ? '<div class="section-title">Drawings <span class="count">' + drawings.length + "</span></div>" +
+        '<div class="grid">' + drawings.map((d) =>
+          '<div class="proj is-drawing" role="button" tabindex="0" data-drawing="' + esc(d.id) + '" title="Open ' + esc(d.name) + '">' +
+          '<div class="proj-thumb">' + (d.thumb ? '<img src="' + esc(d.thumb) + '" alt="" loading="lazy" draggable="false">' : '<span class="proj-frame" style="width:40%;aspect-ratio:16/9">' + icon("pencil", "i-sm") + "</span>") + "</div>" +
+          '<div class="proj-meta"><strong class="ellipsis">' + esc(d.name) + "</strong><small>" + esc(timeAgo(d.updated)) + "</small></div></div>",
+        ).join("") + "</div>"
+      : "";
     inner.innerHTML =
-      '<section class="hero"><h1>What are we making?</h1><p>Describe the video. An agent edits it with your footage, or builds it from scratch.</p></section>' +
+      '<section class="hero"><h1>What are we making?</h1><p>Ask for a video or a drawing below, or start a project here. One agent handles both.</p></section>' +
       setup +
       '<form class="launch" data-launch>' +
       '<div class="launch-pins" data-pins></div>' +
@@ -169,7 +197,13 @@ export function renderHome(main) {
       '<button type="submit" class="btn btn-primary" data-create' + (ready ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
       "</div></form>" +
       '<div class="chips">' + IDEAS.map((idea, i) => '<button type="button" class="chip" data-idea="' + i + '" title="' + esc(idea.text.trim()) + (idea.clip ? " (asks you to pick a video)" : "") + '">' + icon(idea.icon, "i-sm") + esc(idea.label) + "</button>").join("") + "</div>" +
-      (projectsFirst ? projectsHtml + '<div class="gallery" data-gallery></div>' : '<div class="gallery" data-gallery></div>' + projectsHtml);
+      // One chat for everything: it can draw a picture you then edit by hand
+      // in the Draw studio, or make and edit a video project.
+      '<section class="unified-chat"><div class="section-title">Ask an agent</div><div data-chat-slot></div></section>' +
+      (projectsFirst ? projectsHtml + drawingsHtml + '<div class="gallery" data-gallery></div>' : '<div class="gallery" data-gallery></div>' + projectsHtml + drawingsHtml);
+    // The chat survives a repaint: its node is moved back into the fresh slot.
+    const slot = inner.querySelector("[data-chat-slot]");
+    if (slot && chatWrap.parentNode !== slot) slot.appendChild(chatWrap);
     paintPins();
     wire();
   };
@@ -333,6 +367,11 @@ export function renderHome(main) {
       },
       onMade: (projectId) => emit("navigate", { page: "editor", params: { projectId } }),
     });
+    inner.querySelectorAll("[data-drawing]").forEach((card) => {
+      const open = () => api.studioOpenDrawing(card.dataset.drawing);
+      card.addEventListener("click", () => void open());
+      card.addEventListener("keydown", (event) => { if (event.key === "Enter") void open(); });
+    });
     inner.querySelectorAll("[data-idea]").forEach((chip) =>
       chip.addEventListener("click", async () => {
         const idea = IDEAS[Number(chip.dataset.idea)];
@@ -419,6 +458,7 @@ export function renderHome(main) {
   };
 
   paint();
+  void refreshDrawings().then(() => paint());
   // Files dropped anywhere on Home are imported and attached to the launcher.
   const pageEl = main.querySelector("[data-home]");
   wireDrop(pageEl, async (paths) => {
@@ -444,6 +484,7 @@ export function renderHome(main) {
   }, 0);
   return () => {
     if (mic) mic.destroy();
+    chatApi.destroy();
     offs.forEach((off) => off());
   };
 }

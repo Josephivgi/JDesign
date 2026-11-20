@@ -125,6 +125,32 @@ const itemSchema = {
 function tools() {
   return [
     {
+      name: "list_drawings",
+      description: "List every drawing saved in the app (id, name, when it was last touched). Use open_drawing to make one the drawing this session works on.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "new_drawing",
+      description: "Create a new blank drawing, open it in the app's Draw studio, and make it the drawing this session works on.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Title for the drawing." },
+          width: { type: "number", description: "Canvas width in pixels (default 1600)." },
+          height: { type: "number", description: "Canvas height in pixels (default 1200)." },
+          background: { type: "string", description: 'Canvas color such as "#ffffff" (default white).' },
+        },
+      },
+    },
+    {
+      name: "open_drawing",
+      description: "Make an existing drawing (by id or name) the one this session works on, and open it in the Draw studio for the person to watch and edit.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string" }, name: { type: "string" } },
+      },
+    },
+    {
       name: "get_drawing",
       description:
         "Read the drawing: canvas size, background, palette, the person's current brush, layers (bottom to top) and every item with its id, type, bounds and colors. Also returns what the person has selected. Call this before editing so you know the ids.",
@@ -389,6 +415,45 @@ function svgSize(svg) {
 function createMcpServer(host) {
   const token = crypto.randomBytes(24).toString("hex");
   const sessions = new Set();
+  // Which drawing each MCP session is working on, keyed by its session id (or
+  // the x-jdraw-drawing header when the client keeps none). new_drawing and
+  // open_drawing move it; every other tool reads it.
+  const sessionDocs = new Map();
+
+  function drawingList() {
+    return host.listDrawings ? host.listDrawings() : host.store.list();
+  }
+
+  // Tools that pick which drawing the session works on; the rest need it already picked.
+  async function pickTool(ctx, name, args) {
+    const a = args || {};
+    if (name === "list_drawings") {
+      const list = drawingList();
+      return {
+        json: {
+          drawings: list.map((d) => ({ id: d.id, name: d.name, created: d.created, updated: d.updated })),
+          current: ctx.docId || "",
+          next: "open_drawing (id or exact name) makes one the drawing this session works on; new_drawing starts a blank one.",
+        },
+      };
+    }
+    if (name === "new_drawing") {
+      const meta = host.newDrawing ? host.newDrawing(a) : host.store.create({ name: a.name, width: a.width, height: a.height, background: a.background });
+      ctx.setDoc(meta.id);
+      try { if (host.openDrawing) host.openDrawing(meta.id); } catch {}
+      return { json: { id: meta.id, name: meta.name, opened: true, next: "Draw on it with draw or draw_svg, then view_drawing to check." } };
+    }
+    // open_drawing
+    const list = drawingList();
+    const found =
+      list.find((d) => d.id === a.id) ||
+      (a.name ? list.find((d) => String(d.name).toLowerCase() === String(a.name).toLowerCase()) : null) ||
+      (a.name ? list.find((d) => String(d.name).toLowerCase().includes(String(a.name).toLowerCase())) : null);
+    if (!found) throw new Error(`No drawing${a.id || a.name ? " matching " + JSON.stringify(a.id || a.name) : " given"}. Call list_drawings for the ids.`);
+    ctx.setDoc(found.id);
+    try { if (host.openDrawing) host.openDrawing(found.id); } catch {}
+    return { json: { id: found.id, name: found.name, opened: true, next: "view_drawing shows what is on it." } };
+  }
 
   async function callTool(docId, name, args) {
     const store = host.store;
@@ -923,7 +988,7 @@ function createMcpServer(host) {
     return { content };
   }
 
-  async function handleRpc(msg, docId) {
+  async function handleRpc(msg, docCtx) {
     const { id, method, params } = msg;
     const reply = (result) => ({ jsonrpc: "2.0", id, result });
     const fail = (code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -933,7 +998,7 @@ function createMcpServer(host) {
         protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[1],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: SERVER_NAME, title: "JDraw", version: "0.1.0" },
-        instructions: "Tools for the drawing open in JDraw. view_drawing shows it, get_drawing lists items, draw and draw_svg add art, fill_area colors in enclosed areas, edit_items and arrange change it, set_palette adds colors for the person. list_styles and get_style give guides for drawing in a style (watercolor, pixel art, neon and more).",
+        instructions: "Tools for the drawing this session is working on. new_drawing starts one and opens it in the Draw studio, open_drawing switches to a saved one, list_drawings shows what exists. Then view_drawing shows it, get_drawing lists items, draw and draw_svg add art, fill_area colors in enclosed areas, edit_items and arrange change it, set_palette adds colors for the person. list_styles and get_style give guides for drawing in a style (watercolor, pixel art, neon and more).",
       });
     }
     if (method === "ping") return reply({});
@@ -941,7 +1006,15 @@ function createMcpServer(host) {
     if (method === "tools/call") {
       const name = params && params.name;
       const args = (params && params.arguments) || {};
-      if (!docId) return reply({ isError: true, content: [{ type: "text", text: "No drawing is attached to this session." }] });
+      if (["list_drawings", "new_drawing", "open_drawing"].includes(name)) {
+        try {
+          return reply(toolResult(await pickTool(docCtx, name, args)));
+        } catch (err) {
+          return reply({ isError: true, content: [{ type: "text", text: err && err.message ? err.message : String(err) }] });
+        }
+      }
+      const docId = docCtx.docId;
+      if (!docId) return reply({ isError: true, content: [{ type: "text", text: "No drawing is attached to this session. Call new_drawing or open_drawing first." }] });
       try {
         const out = await callTool(docId, name, args);
         try { host.onTool && host.onTool(docId, name, args, null); } catch {}
@@ -964,7 +1037,11 @@ function createMcpServer(host) {
       if (req.headers.authorization !== "Bearer " + token) { res.writeHead(401, { "Content-Type": "application/json" }).end('{"error":"unauthorized"}'); return; }
       if (req.method === "DELETE") { sessions.delete(req.headers["mcp-session-id"]); res.writeHead(200).end(); return; }
       if (req.method !== "POST") { res.writeHead(405, { Allow: "POST, DELETE" }).end(); return; }
-      const docId = String(req.headers["x-jdraw-drawing"] || url.searchParams.get("drawing") || "");
+      const sid = String(req.headers["mcp-session-id"] || "");
+      const headerDoc = String(req.headers["x-jdraw-drawing"] || url.searchParams.get("drawing") || "");
+      // A session that picked a drawing with new_drawing/open_drawing keeps
+      // it; otherwise the drawing bound when it was created applies.
+      const docCtx = { get docId() { return sessionDocs.get(sid || headerDoc) || headerDoc; }, setDoc(id) { sessionDocs.set(sid || headerDoc || "shared", id); } };
       const chunks = [];
       let size = 0;
       for await (const c of req) { size += c.length; if (size > 20 * 1024 * 1024) { res.writeHead(413).end(); return; } chunks.push(c); }
@@ -977,7 +1054,7 @@ function createMcpServer(host) {
         sessions.add(sid);
         headers["Mcp-Session-Id"] = sid;
       }
-      const replies = (await Promise.all(batch.map((m) => handleRpc(m || {}, docId)))).filter(Boolean);
+      const replies = (await Promise.all(batch.map((m) => handleRpc(m || {}, docCtx)))).filter(Boolean);
       if (!replies.length) { res.writeHead(202, headers).end(); return; }
       res.writeHead(200, headers).end(JSON.stringify(Array.isArray(body) ? replies : replies[0]));
     } catch (err) {

@@ -53,6 +53,7 @@ function attachAgentHub(options) {
     windows,
     powerHold: holdSystemAwake,
     powerRelease: releaseSystemAwake,
+    drawMcp: options.drawMcp,
     bridgeInfo: () => {
       const info = bridge.info();
       return info.running ? { url: info.url, token: info.token } : null;
