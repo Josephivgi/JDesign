@@ -296,7 +296,7 @@ function tools() {
     },
     {
       name: "layers",
-      mutates: (a) => !a || a.action !== "list",
+      mutates: (a) => layerAction(a) !== "list",
       description: "Manage layers: list, add, rename, show or hide, lock or unlock, duplicate, set opacity or blend mode, move (index 0 = bottom), merge_down or delete.",
       inputSchema: {
         type: "object",
@@ -422,19 +422,7 @@ function createMcpServer(host) {
   // checkpoint before the call, the changed mark for the turn gate and the
   // artifact card. A stale hardcoded list here is how deletes slipped past
   // all three.
-  const allDefs = tools().concat(pickToolDefs());
-  const mutatingTool = (name, args) => {
-    const def = allDefs.find((t) => t.name === name);
-    return Boolean(def && (typeof def.mutates === "function" ? def.mutates(args) : def.mutates));
-  };
-
-  function pickToolDefs() {
-    return [
-      { name: "list_drawings", description: "List the drawings in this project (id, name, when updated).", inputSchema: { type: "object", properties: {} } },
-      { name: "new_drawing", mutates: true, description: "Create a blank drawing in this project and start drawing on it. size: like 1280x720; ratio: like 16/9, 1/1, 9/16.", inputSchema: { type: "object", properties: { name: { type: "string" }, size: { type: "string" }, ratio: { type: "string" } } } },
-      { name: "open_drawing", description: "Open one of this project's drawings by id or name and bring it up on stage. Pass id or name.", inputSchema: { type: "object", properties: { id: { type: "string" }, name: { type: "string" } } } },
-    ];
-  }
+  const allDefs = allToolDefs();
 
   // The drawings a session may see. A project-bound session only ever lists,
   // opens or edits drawings inside its own project.
@@ -983,8 +971,7 @@ function createMcpServer(host) {
       }
       case "layers": {
         const listLayers = () => store.getDoc(docId).layers.map((l, i) => ({ id: l.id, name: l.name, index: i, visible: l.visible !== false, locked: !!l.locked, items: l.items.length }));
-        const alias = { list: "list", get: "list", create: "add", new: "add", remove: "delete", reorder: "move", visible: "show", visibility: a.visible === false ? "hide" : "show", merge: "merge_down", copy: "duplicate" };
-        a.action = alias[a.action] || a.action;
+        a.action = layerAction(a);
         if (a.action === "list") return { json: { layers: listLayers() } };
         const L = a.layer !== undefined ? layerRef(a.layer) : undefined;
         const map = {
@@ -1041,14 +1028,14 @@ function createMcpServer(host) {
       try {
         if (PICK_TOOLS.has(name)) {
           const out = await pickTool(ctx, name, args);
-          // new_drawing creates a doc: same artifact card and turn tracking
-          // as a doc tool.
-          try { host.onTool && host.onTool(ctx.sess.docId, name, args, null, ctx); } catch {}
+          // Only mutating picks earn the artifact card and turn tracking:
+          // new_drawing creates a doc; list/open are reads and fire nothing.
+          if (toolMutates(name, args)) try { host.onTool && host.onTool(ctx.sess.docId, name, args, null, ctx); } catch {}
           return reply(toolResult(out));
         }
         const docId = ctxDoc(ctx);
         if (!docId) return reply({ isError: true, content: [{ type: "text", text: ctx.scopeErr || "No drawing is attached to this session. Call list_drawings then open_drawing, or new_drawing." }] });
-        if (mutatingTool(name, args)) try { host.beforeTool && host.beforeTool(ctx, docId, name, args); } catch {}
+        if (toolMutates(name, args)) try { host.beforeTool && host.beforeTool(ctx, docId, name, args); } catch {}
         const out = await callTool(docId, name, args);
         try { host.onTool && host.onTool(docId, name, args, null, ctx); } catch {}
         return reply(toolResult(out));
@@ -1072,7 +1059,10 @@ function createMcpServer(host) {
       if (req.method !== "POST") { res.writeHead(405, { Allow: "POST, DELETE" }).end(); return; }
       const sessKey = String(req.headers["mcp-session-id"] || "") || "hdr:" + String(req.headers["x-jdraw-drawing"] || "") + ":" + String(req.headers["x-jdraw-project"] || "");
       const sess = sessionDocs.get(sessKey) || { docId: String(req.headers["x-jdraw-drawing"] || url.searchParams.get("drawing") || "") };
-      if (!sessionDocs.has(sessKey) && sessionDocs.size >= 256) sessionDocs.delete(sessionDocs.keys().next().value);
+      // Re-insert on every request so the cap evicts the least recently used
+      // binding, not a live session.
+      sessionDocs.delete(sessKey);
+      if (sessionDocs.size >= 256) sessionDocs.delete(sessionDocs.keys().next().value);
       sessionDocs.set(sessKey, sess);
       const ctx = {
         sess,
@@ -1113,9 +1103,7 @@ function createMcpServer(host) {
     callTool,
     // The tool names that change a drawing, from the mutates flags. The
     // studio derives checkpoint and artifact behavior from this same set.
-    mutatingToolNames() {
-      return new Set(allDefs.filter((t) => t.mutates).map((t) => t.name));
-    },
+    mutatingToolNames,
     // Each person turn starts with a fresh refusal budget per object.
     resetLint(docId) { for (const k of [...lintTries.keys()]) if (k.startsWith(docId + "\n")) lintTries.delete(k); for (const k of [...finalRefused]) if (k.startsWith(docId + "\n")) finalRefused.delete(k); },
     listen() {
@@ -1158,10 +1146,41 @@ function createMcpServer(host) {
   };
 }
 
-module.exports = { createMcpServer, summarize, svgToDataUrl, mutatingToolNames };
+module.exports = { createMcpServer, summarize, svgToDataUrl, mutatingToolNames, toolMutates };
+
+function pickToolDefs() {
+  return [
+    { name: "list_drawings", description: "List the drawings in this project (id, name, when updated).", inputSchema: { type: "object", properties: {} } },
+    { name: "new_drawing", mutates: true, description: "Create a blank drawing in this project and start drawing on it. size: like 1280x720; ratio: like 16/9, 1/1, 9/16.", inputSchema: { type: "object", properties: { name: { type: "string" }, size: { type: "string" }, ratio: { type: "string" } } } },
+    { name: "open_drawing", description: "Open one of this project's drawings by id or name and bring it up on stage. Pass id or name.", inputSchema: { type: "object", properties: { id: { type: "string" }, name: { type: "string" } } } },
+  ];
+}
+
+// Layers has one def for many actions and the callers write aliases
+// (get/list, create/add, copy/duplicate...). Normalize before anything
+// decides whether a call changes the drawing.
+const LAYER_ALIAS = { list: "list", get: "list", create: "add", new: "add", remove: "delete", reorder: "move", visible: "show", merge: "merge_down", copy: "duplicate" };
+function layerAction(a) {
+  if (!a || !a.action) return "";
+  if (a.action === "visibility") return a.visible === false ? "hide" : "show";
+  return LAYER_ALIAS[a.action] || a.action;
+}
+
+let defCache = null;
+function allToolDefs() {
+  if (!defCache) defCache = tools().concat(pickToolDefs());
+  return defCache;
+}
+
+// Args-aware mutation check: a read-only layers list is not a mutation even
+// though the tool itself can mutate.
+function toolMutates(name, args) {
+  const def = allToolDefs().find((t) => t.name === name);
+  return Boolean(def && (typeof def.mutates === "function" ? def.mutates(args) : def.mutates));
+}
 
 // Same set the server instance reports, for code that needs it before a
-// server exists (the studio's artifact list).
+// server exists. Built from the shared defs so it cannot drift from them.
 function mutatingToolNames() {
-  return new Set(tools().concat([{ name: "new_drawing", mutates: true }]).filter((t) => t.mutates).map((t) => t.name));
+  return new Set(allToolDefs().filter((t) => t.mutates).map((t) => t.name));
 }

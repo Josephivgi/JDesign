@@ -6,7 +6,7 @@ const CLIP_MARK = "jdraw-items:";
 const path = require("node:path");
 const fs = require("node:fs");
 const { DrawingStore, titleFor } = require("./lib/store.cjs");
-const { createMcpServer, mutatingToolNames } = require("./lib/mcp-server.cjs");
+const { createMcpServer, toolMutates } = require("./lib/mcp-server.cjs");
 const { CATALOG, detectAgents, AgentSession, REVIEW_BRIEF } = require("./lib/acp.cjs");
 const SlopCheck = require("./lib/slop-check.cjs");
 const Finish = require("./lib/finish.cjs");
@@ -786,9 +786,8 @@ const TOOL_LABELS = {
 };
 
 // Tools that mean a project drawing changed: each one leaves an artifact card
-// in the project chat transcript. Derived from the mutates flags on the tool
-// defs so the list cannot drift from what the server actually offers.
-const ARTIFACT_TOOLS = mutatingToolNames();
+// in the project chat transcript. The check is args-aware so a read-only
+// layers list does not mark the turn changed.
 
 function createView() {
   if (SMOKE) return createSmokeWindow();
@@ -1425,7 +1424,7 @@ async function init(opts) {
       send("agent:tool-done", { docId: id, name, label: TOOL_LABELS[name] || name, error: err ? err.message : null });
       // A project chat drawing it makes or edits becomes an artifact card in
       // that chat and a tab on the stage.
-      if (!err && ctx && ctx.projectId && id && ARTIFACT_TOOLS.has(name)) {
+      if (!err && ctx && ctx.projectId && id && toolMutates(name, args)) {
         const t = projectTurn(ctx.projectId);
         t.changed.add(id);
         if (name === "new_drawing") t.created.add(id);

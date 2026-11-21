@@ -217,8 +217,10 @@ function createAgentBridge(host) {
   let port = 0;
   let token = "";
   let startedAt = "";
-  // Only sessions the app spawned may claim a harness. The key never lands on
-  // disk: it rides the MCP entries and env the ACP host hands its agents.
+  // Only sessions the app spawned may claim a harness. The key rides the MCP
+  // entries and env the ACP host hands its agents; for stdio-only agents it
+  // sits in that session's own MCP config under its agent workspace, never
+  // in agent-bridge.json or the app's data.
   const harnessKey = randomBytes(24).toString("hex");
   function broadcast(event, payload) {
     for (const win of host.windows()) {

@@ -72,7 +72,15 @@ function attachAgentHub(options) {
     ipcMain.handle(channel, handler);
   }
 
-  register("agent-bridge-info", () => bridge.info());
+  register("agent-bridge-info", () => {
+    const info = bridge.info();
+    if (!info) return info;
+    // The harness key proves a caller is an app-spawned agent; it must never
+    // reach the renderer or a plugin, which could then claim in-app
+    // privileges like auto-approved TTS.
+    const { harnessKey, ...rest } = info;
+    return rest;
+  });
   register("clipboard-write-text", (_event, text) => {
     clipboard.writeText(String(text == null ? "" : text));
     return { ok: true };

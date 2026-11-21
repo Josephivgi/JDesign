@@ -149,6 +149,9 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 /* A destructive confirm is a filled red button, not red text on the accent. */
 .btn.primary.danger, .btn-primary.danger { background: var(--danger); color: var(--on-danger); }
 .btn.primary.danger:hover, .btn-primary.danger:hover { background: color-mix(in oklab, var(--danger) 88%, var(--text)); }
+/* Disabled danger stays red on hover; without this the generic primary
+   disabled rule above outranks it and the button flashes accent. */
+.btn.primary.danger[disabled]:hover, .btn-primary.danger[disabled]:hover { background: var(--danger); }
 .btn.sm, .btn-sm { height: 28px; padding: 0 var(--s-2); font-size: var(--fs-sm); border-radius: var(--r-1); }
 .icon-btn {
   width: 32px; height: 32px; border-radius: var(--r-2); border: 0; background: transparent; color: var(--text-2);

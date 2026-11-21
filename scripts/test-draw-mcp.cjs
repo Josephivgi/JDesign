@@ -1,6 +1,6 @@
 // Draw MCP server regression: mutating-tool coverage, sequential batch order
 // (new_drawing before draw), pick-tool artifact hook, session cleanup.
-const { createMcpServer, mutatingToolNames } = require("../draw/lib/mcp-server.cjs");
+const { createMcpServer, mutatingToolNames, toolMutates } = require("../draw/lib/mcp-server.cjs");
 
 const calls = [];
 const artifacts = [];
@@ -18,7 +18,7 @@ const host = {
   projectOf: () => "p1",
   newDrawing: (o) => { const d = { id: "d" + ++seq, name: o.name || "Drawing", updated: Date.now(), layers: [] }; docs.push(d); calls.push("new:" + d.id); return d; },
   beforeTool: (ctx, docId, name) => calls.push("before:" + name + ":" + docId),
-  onTool: (id, name, args, err, ctx) => { calls.push("on:" + name + ":" + id); if (!err && mutatingToolNames().has(name)) artifacts.push(name + ":" + id); },
+  onTool: (id, name, args, err, ctx) => { calls.push("on:" + name + ":" + id); if (!err && toolMutates(name, args)) artifacts.push(name + ":" + id); },
 };
 
 (async () => {
@@ -55,7 +55,14 @@ const host = {
   const leaked = list.result.tools.filter((t) => "mutates" in t);
   console.log("flag leak:", leaked.length ? leaked.map((t) => t.name).join(",") : "none");
 
-  const ok = inOrder && !missing.length && !ghosts.length && artifactsOk && !leaked.length;
+  // 5. Read-only layers list (via the "get" alias): no checkpoint, no
+  //    artifact, no changed mark.
+  await post({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "layers", arguments: { action: "get" } } });
+  const layersCheckpoint = calls.includes("before:layers:d1");
+  const layersArtifact = artifacts.includes("layers:d1");
+  console.log("layers-list checkpoint:", layersCheckpoint ? "yes (bad)" : "none", "| artifact:", layersArtifact ? "yes (bad)" : "none");
+
+  const ok = inOrder && !missing.length && !ghosts.length && artifactsOk && !leaked.length && !layersCheckpoint && !layersArtifact;
   console.log(ok ? "PASS" : "FAIL");
   setTimeout(() => process.exit(ok ? 0 : 1), 100).unref();
 })().catch((e) => { console.log("FAIL", e); process.exit(1); });

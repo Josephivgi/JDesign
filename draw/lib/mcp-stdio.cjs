@@ -46,7 +46,10 @@ async function handleOne(m) {
   }
   try {
     const r = await post(m);
-    return m.id === undefined ? null : r;
+    if (m.id === undefined) return null;
+    // A request with no reply (202 or an unparseable body) still needs an
+    // answer, or the client waits on it forever.
+    return r || rpcError(m.id, "Empty reply from JDraw.");
   } catch {
     // A dead app or a dropped connection answers as an error, not a crash.
     return m.id === undefined ? null : rpcError(m.id, "Could not reach JDraw.");
@@ -72,20 +75,28 @@ process.stdin.on("data", (d) => {
     return;
   }
   for (;;) {
-    const m = raw.toString("latin1", 0, Math.min(raw.length, 256)).match(/^Content-Length:\s*(\d+)\s*\r?\n\r?\n/i);
-    if (m) {
-      const head = Buffer.byteLength(m[0], "latin1");
+    // A frame starts with a header line (Content-Length, and some clients
+    // send Content-Type first). Parse the whole block, not just line one.
+    const firstNl = raw.indexOf(0x0a);
+    const firstLine = raw.slice(0, firstNl < 0 ? Math.min(raw.length, 256) : firstNl).toString("latin1").trim();
+    if (/^content-(length|type)\s*:/i.test(firstLine)) {
+      let head = raw.indexOf("\r\n\r\n");
+      let term = 4;
+      if (head < 0) { head = raw.indexOf("\n\n"); term = 2; }
+      if (head < 0) return;
+      const m = raw.slice(0, head).toString("latin1").match(/Content-Length:\s*(\d+)/i);
+      if (!m) { raw = raw.slice(head + term); continue; }
       const len = +m[1];
-      if (raw.length < head + len) return;
-      const body = raw.slice(head, head + len).toString("utf8");
-      raw = raw.slice(head + len);
+      const start = head + term;
+      if (raw.length < start + len) return;
+      const body = raw.slice(start, start + len).toString("utf8");
+      raw = raw.slice(start + len);
       try { void handleMessage(JSON.parse(body)); } catch {}
       continue;
     }
-    const nl = raw.indexOf(0x0a);
-    if (nl < 0) return;
-    const line = raw.slice(0, nl).toString("utf8").trim();
-    raw = raw.slice(nl + 1);
+    if (firstNl < 0) return;
+    const line = raw.slice(0, firstNl).toString("utf8").trim();
+    raw = raw.slice(firstNl + 1);
     if (!line) continue;
     try { void handleMessage(JSON.parse(line)); } catch {}
   }
