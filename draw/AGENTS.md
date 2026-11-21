@@ -28,4 +28,3 @@ Electron drawing app with ACP agents. Global rules apply (writing style, no wind
 - Hidden smoke only: `JDRAW_USER_DATA=<scratch> JDRAW_SMOKE_SHOTS=<dir> electron . --smoke`. Add `JDRAW_SMOKE_AGENT=claude-code` for a real agent turn (report.json has the reply, tool calls and the chat as drawn). `JDRAW_SMOKE_UI=1` adds a dark theme capture.
 - Hidden window captures can be stale (no animation frames while hidden). Trust exported PNGs and DOM checks.
 - Use a scratch data folder, never `%APPDATA%\JDraw`.
-- Click tests by screenshot: `electron . --drive` (with `JDRAW_USER_DATA`, `JDRAW_DRIVE_SHOTS`, `JDRAW_DRIVE_TOKEN`, `JDRAW_DRIVE_PORT=0`) renders offscreen (real frames, never on the desktop) and logs `drive http://127.0.0.1:<port>` to `jdraw.log`. Drive it with `node scripts/drive.cjs shot|click|drag|type|key ...` (needs `JDRAW_DRIVE_URL` and `JDRAW_DRIVE_TOKEN`); each action prints a fresh screenshot path. Do not use port 47811 (JMCP hub).
