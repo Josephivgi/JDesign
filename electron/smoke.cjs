@@ -98,14 +98,16 @@ async function runJeditorSmoke(win, opts) {
       const count = async () => { const p = await window.cutline.aiProjects(); return (Array.isArray(p) ? p : (p && p.projects) || []).length; };
       const before = await count();
       const clicked = [];
-      for (const sel of ['[data-launch] [data-agent]', '[data-launch] [data-model]', '[data-launch] [data-ratio]']) {
+      for (const sel of ['[data-launch] [data-agent]', '[data-launch] [data-effort]', '[data-launch] [data-ratio]']) {
         const b = document.querySelector(sel);
         if (!b || b.disabled) continue;
         b.click();
         clicked.push(sel);
         await wait(300);
+        // Only the frame menu gets a pick: an agent or effort pick here would
+        // change what a later real turn runs with.
         const item = document.querySelector('.menu .menu-item:not([disabled])');
-        if (item && sel !== '[data-launch] [data-agent]') item.click();
+        if (item && sel === '[data-launch] [data-ratio]') item.click();
         else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(400);
       }
@@ -188,23 +190,31 @@ async function runJeditorSmoke(win, opts) {
       await js("window.__jeditor.navigate('home')");
       await waitFor("[data-launch]");
       const t0 = Date.now();
-      report.homeModel = { pickerReady: await waitFor("[data-home-model] [data-model]:not([disabled])", 150000), seconds: 0 };
+      report.homeModel = { pickerReady: await waitFor('[data-launch] [data-agent][data-models="ready"]', 150000), seconds: 0 };
       report.homeModel.seconds = Math.round((Date.now() - t0) / 1000);
-      report.homeModel.labelBefore = await js("(document.querySelector('[data-home-model]') || {}).textContent || ''");
+      report.homeModel.labelBefore = await js("(document.querySelector('[data-launch] [data-agent]') || {}).textContent || ''");
       report.shots.push(await shot("home-model-picker"));
       report.homeModel.pick = await js(`(async () => {
         const wait = (ms) => new Promise((r) => setTimeout(r, ms));
         const list = await window.cutline.acpModels({ harnessId: ${JSON.stringify(agent)} });
         const m = (list.availableModels || []).find((x) => x.modelId === ${JSON.stringify(wantModel)});
         if (!m) return { ok: false, why: 'agent did not offer it', offered: (list.availableModels || []).map((x) => x.modelId) };
-        document.querySelector('[data-home-model] [data-model]').click();
+        document.querySelector('[data-launch] [data-agent]').click();
         await wait(400);
-        const items = Array.from(document.querySelectorAll('.menu .menu-item'));
-        const item = items.find((el) => (el.textContent || '').startsWith(m.name));
+        // Search when the list has a box, so a model folded under "Older
+        // versions" is found the way a person would find it.
+        const q = document.querySelector('.mp [data-mp-q]');
+        if (q && !q.closest('[hidden]')) {
+          q.value = m.name;
+          q.dispatchEvent(new Event('input', { bubbles: true }));
+          await wait(300);
+        }
+        const items = Array.from(document.querySelectorAll('.mp [data-mp-row]'));
+        const item = items.find((el) => (el.querySelector('.ellipsis') || el).textContent === m.name);
         if (!item) return { ok: false, why: 'not in menu', menu: items.map((el) => el.textContent).slice(0, 20) };
         item.click();
         await wait(300);
-        const label = document.querySelector('[data-home-model]').textContent;
+        const label = document.querySelector('[data-launch] [data-agent]').textContent;
         const box = document.querySelector('[data-launch-input]');
         box.value = ${JSON.stringify(prompt)};
         box.dispatchEvent(new Event('input', { bubbles: true }));
@@ -230,11 +240,18 @@ async function runJeditorSmoke(win, opts) {
     // JEDITOR_SMOKE_EVAL=<file.js>: run an async expression from a file in
     // the project page and put what it returns in the report (for checks
     // and UI exploration that the fixed steps do not cover).
+    // Several files joined with ";" run in order, each with its own shot
+    // (eval, eval-2, ...), so one run can capture a few open menus.
     if (process.env.JEDITOR_SMOKE_EVAL) {
       await sleep(2500);
-      const code = fs.readFileSync(process.env.JEDITOR_SMOKE_EVAL, "utf8");
-      report.eval = await js("(async () => { " + code + " })()").catch((e) => "error: " + (e && e.message || e));
-      report.shots.push(await shot("eval"));
+      const files = process.env.JEDITOR_SMOKE_EVAL.split(";").map((f) => f.trim()).filter(Boolean);
+      const results = [];
+      for (let i = 0; i < files.length; i += 1) {
+        const code = fs.readFileSync(files[i], "utf8");
+        results.push(await js("(async () => { " + code + " })()").catch((e) => "error: " + (e && e.message || e)));
+        report.shots.push(await shot("eval" + (i ? "-" + (i + 1) : "")));
+      }
+      report.eval = files.length === 1 ? results[0] : results;
     }
 
     if (prompt) {
@@ -276,7 +293,7 @@ async function runJeditorSmoke(win, opts) {
       if (wantModel) {
         // What the agent session is really running, and what the chat shows.
         report.modelCheck = await js(
-          "window.cutline.editorChats({ workspaceId: window.__jeditor.store.workspaceId, page: 'ai', projectId: " + JSON.stringify(projectId) + " }).then(async (list) => { const c = list[0]; if (!c) return null; const r = await window.cutline.editorChatGet({ id: c.id }); const s = await window.cutline.acpSession({ workspaceId: window.__jeditor.store.workspaceId, projectId: " + JSON.stringify(projectId) + ", chatId: c.id, harnessId: " + JSON.stringify(agent) + " }); return { want: " + JSON.stringify(wantModel) + ", chatModel: r.chat.model, sessionModel: s && s.models && s.models.currentModelId, sessionModelCount: s && s.models && s.models.availableModels.length, composerLabel: (document.querySelector('[data-model-slot]') || {}).textContent || '' }; }).catch((e) => 'error: ' + (e && e.message || e))",
+          "window.cutline.editorChats({ workspaceId: window.__jeditor.store.workspaceId, page: 'ai', projectId: " + JSON.stringify(projectId) + " }).then(async (list) => { const c = list[0]; if (!c) return null; const r = await window.cutline.editorChatGet({ id: c.id }); const s = await window.cutline.acpSession({ workspaceId: window.__jeditor.store.workspaceId, projectId: " + JSON.stringify(projectId) + ", chatId: c.id, harnessId: " + JSON.stringify(agent) + " }); return { want: " + JSON.stringify(wantModel) + ", chatModel: r.chat.model, sessionModel: s && s.models && s.models.currentModelId, sessionModelCount: s && s.models && s.models.availableModels.length, composerLabel: (document.querySelector('[data-agent-slot]') || {}).textContent || '' }; }).catch((e) => 'error: ' + (e && e.message || e))",
         );
         if (report.modelCheck && typeof report.modelCheck === "object") report.modelCheck.ok = report.modelCheck.sessionModel === wantModel && report.modelCheck.chatModel === wantModel;
       }
@@ -302,10 +319,13 @@ async function runJeditorSmoke(win, opts) {
           if (!h || !h.available) return { ok: false, why: 'agent not available' };
           document.querySelector('[data-agent]').click();
           await wait(400);
-          const item = Array.from(document.querySelectorAll('.menu .menu-item')).find((m) => m.textContent.includes(h.name));
+          const item = Array.from(document.querySelectorAll('.menu [data-mp-agent]')).find((m) => m.textContent.includes(h.name));
           if (!item) return { ok: false, why: 'not in menu' };
           item.click();
           await wait(600);
+          // Picking an agent leaves the popover open on its models; close it.
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await wait(200);
           const label = document.querySelector('[data-agent]').textContent;
           const input = document.querySelector('[data-input]');
           input.value = ${JSON.stringify(prompt2)};

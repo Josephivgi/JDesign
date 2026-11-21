@@ -29,6 +29,7 @@ const PREF_DEFAULTS = Object.freeze({
   micEngine: "auto", // auto | windows | elevenlabs
   micAutoSend: false, // send the message as soon as the words come back
   slopGate: true, // refuse the default AI look in cards, animations and copy, and check a result after the turn
+  effort: "medium", // thinking effort a send asks for, when the agent offers the option
 });
 
 const ENUMS = {

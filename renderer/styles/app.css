@@ -292,6 +292,44 @@ kbd {
 .menu-search .input { height: 30px; }
 .menu-empty { padding: 10px 8px; color: var(--text-3); }
 
+/* The agent and model picker: one button, agent first, model after a rule.
+   The model is the quieter half, and the half that stays when room is short. */
+.picker-am { max-width: 320px; }
+.picker-am > .agent-avatar { flex: none; }
+.picker-am > .pk-agent, .picker-am > .pk-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-am > .pk-agent { flex: 0 100000 auto; color: var(--text); }
+.picker-am > .pk-model { flex: 0 1 auto; padding-left: 7px; border-left: 1px solid var(--line-2); font-weight: 400; }
+.picker-am:hover > .pk-model { color: var(--text); }
+
+/* The effort picker: rising bars filled up to the level, then its name. */
+.fx-bars { width: 14px; height: 14px; flex: none; fill: currentColor; }
+.picker-fx > .fx-bars { color: var(--text); }
+.menu-item > .fx-bars { color: var(--text); width: 18px; height: 18px; }
+
+/* Agent and model popover: agents on the left, that agent's models on the
+   right. Each side scrolls by itself, so neither list buries the other. */
+.menu.mp { display: flex; padding: 0; width: 524px; max-width: calc(100vw - 16px); overflow: hidden; }
+.mp-agents { flex: 0 0 212px; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--bg-1); }
+.mp-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 5px; border-bottom: 1px solid var(--line); }
+.mp-manage { flex: none; margin: 5px; width: auto; color: var(--text-2); }
+.mp-agents .menu-item.is-on { background: var(--bg-3); }
+.mp-missing { color: var(--text-3); }
+.mp-missing .agent-avatar { opacity: 0.55; }
+.mp-models { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.mp-models .menu-search { flex: none; padding: 8px 8px 3px; }
+.mp-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 5px; }
+.mp .menu-item .sub { margin-top: 1px; }
+.mp-group { color: var(--text-2); margin-top: 2px; }
+.mp-group .i { color: var(--text-3); }
+.mp-count { color: var(--text-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.mp-note { display: flex; align-items: center; gap: 8px; padding: 10px 8px; color: var(--text-3); font-size: var(--fs-sm); line-height: 1.4; }
+.mp-foot { padding: 8px 8px 4px; color: var(--text-3); font-size: var(--fs-xs); }
+/* A window too narrow for two columns: agents on top, models under them. */
+@media (max-width: 540px) {
+  .menu.mp { flex-direction: column; width: 320px; }
+  .mp-agents { flex: 0 1 auto; max-height: 38%; border-right: 0; border-bottom: 1px solid var(--line); }
+}
+
 /* ---------- dialogs ---------- */
 
 .scrim {
@@ -417,7 +455,7 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 .hero p { color: var(--text-2); margin-top: 8px; font-size: var(--fs-md); }
 
 .launch {
-  width: min(840px, 100%); margin: 26px auto 0; border-radius: var(--r-xl); background: var(--bg-2);
+  width: min(900px, 100%); margin: 26px auto 0; border-radius: var(--r-xl); background: var(--bg-2);
   border: 1px solid var(--line-2); box-shadow: var(--shadow-sm); transition: border-color var(--t), box-shadow var(--t);
   /* The foot is a row of pickers: it measures itself against the box, not the
      window, so the Create button never wraps away from them. */
@@ -429,7 +467,7 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
   resize: none; background: transparent; font-size: var(--fs-md); line-height: 1.55;
 }
 .launch textarea::placeholder { color: var(--text-3); }
-.launch-setup { width: min(840px, 100%); margin: 22px auto -8px; padding: 10px 12px; }
+.launch-setup { width: min(900px, 100%); margin: 22px auto -8px; padding: 10px 12px; }
 /* The shared notice sets its own margin later in this file; on Home the setup
    notice stays centred over the prompt box it explains. */
 [data-home] .launch-setup { margin: 22px auto -8px; }
@@ -443,12 +481,19 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 [data-home] .launch-foot .icon-btn { width: var(--control); height: var(--control); border-radius: var(--r); }
 /* A long agent or model name shortens, it never pushes Create off the row. */
 [data-home] .launch-foot .picker { min-width: 0; }
+[data-home] .launch-foot .launch-pickers { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+/* The frame and the effort keep their words; the agent name is what shortens. */
+[data-home] .launch-foot [data-ratio], [data-home] .launch-foot .picker-fx { flex: none; }
+/* A box too narrow for every word: the effort bars still show the level. */
+@container (max-width: 880px) {
+  [data-home] .launch-foot .picker-fx > .pk-fx-name { display: none; }
+}
 [data-home] .launch-foot .picker > span:not(.agent-avatar) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Narrow box: the secondary action keeps its icon and its accessible name,
    and only the visible words go. */
 @container (max-width: 700px) {
-  [data-home] .launch-foot [data-blank] { padding: 0 10px; }
-  [data-home] .launch-foot [data-blank] span {
+  [data-home] .launch-foot [data-manual] { padding: 0 10px; }
+  [data-home] .launch-foot [data-manual] span {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
 }
@@ -468,6 +513,27 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 [data-home] .chip .i { color: var(--text-3); transition: color var(--t-fast); }
 [data-home] .chip:hover { background: var(--bg-3); border-color: var(--line-2); }
 [data-home] .chip:hover .i { color: var(--accent-text); }
+
+/* Under the prompt box the page splits in half: starting a new drawing on
+   one side, the drawings that already exist on the other. */
+.draw-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+.draw-half { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-1); min-width: 0; }
+.draw-new { display: grid; justify-items: center; align-content: center; text-align: center; gap: 8px; padding: 22px 18px; height: 100%; box-sizing: border-box; }
+.draw-new-ic { color: var(--text-3); }
+.draw-new strong { font-size: var(--fs-md); }
+.draw-new p { color: var(--text-2); font-size: var(--fs-sm); max-width: 36ch; }
+.draw-half-head { display: flex; align-items: center; gap: var(--s-2); padding: 12px 14px 8px; font-size: var(--fs-md); }
+.draw-half-head .count { color: var(--text-3); font-weight: 500; }
+.draw-rows { display: grid; max-height: 236px; overflow-y: auto; padding: 0 6px 8px; }
+.draw-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 0; background: transparent; border-radius: var(--r); text-align: left; color: var(--text); font-size: var(--fs); }
+.draw-row:hover { background: var(--bg-2); }
+.draw-thumb { width: 56px; height: 40px; flex: none; border-radius: var(--r-sm); background: var(--bg-2); border: 1px solid var(--line); color: var(--text-3); display: grid; place-items: center; overflow: hidden; }
+.draw-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.draw-row-main { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.draw-row-main small { color: var(--text-3); font-size: var(--fs-sm); }
+.draw-row > .i-sm { color: var(--text-3); flex: none; }
+.draw-none { padding: 0 14px 16px; color: var(--text-3); font-size: var(--fs-sm); }
+@media (max-width: 760px) { .draw-split { grid-template-columns: 1fr; } }
 
 .media-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 3px; border-radius: var(--r-sm);
@@ -1067,26 +1133,38 @@ html[data-density="compact"] .cut-track { height: 32px; margin-top: 6px; }
 .composer-foot { display: flex; align-items: center; gap: 2px; padding: 4px 6px 6px; min-width: 0; }
 /* The icon buttons, the timer and Send keep their size. The two pickers are
    the part that gives way: the agent name first (its avatar still says which
-   agent), then the model name, so the row shows one cut name and not two. */
+   agent), then the effort name (its bars still show the level), and the model
+   name last, so the row never shows two cut names. */
 .composer-foot > .icon-btn, .composer-foot > .agent-status { flex: none; }
 .composer-foot > [data-agent-slot], .composer-foot > [data-model-slot] { display: flex; min-width: 0; }
 /* The agent's share of the shrink is large enough that the model's rounds to
    nothing until the agent name is gone. */
-.composer-foot > [data-agent-slot] { flex: 0 100000 auto; min-width: 60px; }
-.composer-foot > [data-model-slot] { flex: 0 1 auto; }
+.composer-foot > [data-agent-slot] { flex: 0 1 auto; min-width: 58px; }
+.composer-foot > [data-model-slot] { flex: none; }
 .composer-foot .picker > .agent-avatar { flex: none; }
 .composer-foot > .grow { flex: 1 1 0; }
 .composer-foot .picker { max-width: 100%; }
 .composer-foot .agent-status { padding: 0 4px; font-variant-numeric: tabular-nums; }
 .composer-foot .agent-status:empty { display: none; }
-@container chat (max-width: 350px) {
+@container chat (max-width: 560px) {
   /* The avatar still says which agent, and the tooltip has the name. */
-  .composer-foot [data-agent] > .ellipsis { display: none; }
-  .composer-foot > [data-agent-slot] { min-width: 0; flex-shrink: 0; }
+  .composer-foot .picker-am > .pk-agent { display: none; }
+  .composer-foot .picker-am > .pk-model { padding-left: 0; border-left: 0; }
+}
+@container chat (max-width: 480px) {
+  /* The bars still show the level, and the tooltip has its name. Without its
+     word the effort picker is an icon button like the ones before it. */
+  .composer-foot .picker-fx > .pk-fx-name, .composer-foot .picker-fx > .chev { display: none; }
+}
+@container chat (max-width: 390px) {
+  /* The model name goes last: the tooltip and the popover still have it. */
+  .composer-foot .picker-am > .pk-model { display: none; }
+}
+@container chat (max-width: 350px) {
   .composer-foot { padding-left: 4px; padding-right: 4px; }
-  .composer-foot [data-agent] { padding: 0 4px; gap: 2px; }
-  .composer-foot [data-model] { padding: 0 6px; gap: 4px; }
-  .composer-foot .picker-more { display: none; }
+  .composer-foot > [data-agent-slot] { min-width: 0; }
+  .composer-foot .picker-am > .chev { display: none; }
+  .composer-foot .picker-am, .composer-foot .picker-fx { padding: 0 4px; }
 }
 /* The two pickers and the send button share one height and one radius, so the
    row reads as one control strip. The icon buttons stay small: they are
