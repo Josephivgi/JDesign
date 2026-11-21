@@ -27,6 +27,8 @@ export const store = {
   snapshot: null,
   prefs: {},
   harnesses: [],
+  // Saved ACP Registry icons by registry id, for model maker marks.
+  registryIcons: {},
   projects: null,
   route: { page: "home" },
   get workspaceId() {
@@ -62,8 +64,9 @@ export async function refreshProjects() {
 export async function refreshHarnesses() {
   if (!api) return [];
   try {
-    const list = await api.acpHarnesses();
+    const [list, icons] = await Promise.all([api.acpHarnesses(), api.acpRegistryIcons ? api.acpRegistryIcons().catch(() => null) : null]);
     store.harnesses = Array.isArray(list) ? list : [];
+    if (icons && typeof icons === "object") store.registryIcons = icons;
   } catch {
     store.harnesses = [];
   }

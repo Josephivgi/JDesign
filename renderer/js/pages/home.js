@@ -1,7 +1,7 @@
 import { api, store, on, emit, refreshProjects, defaultHarnessId, thumbFor, setPrefs } from "../store.js";
 import { esc, icon, toast, showMenu, confirmDialog, promptDialog, autosize, timeAgo, errorText } from "../ui.js";
 import { mediaChip, pickMedia, wireDrop, importPaths } from "../media.js";
-import { agentName, loadModels, agentModelPickerButton, openAgentModelMenu, effortPickerButton, openEffortMenu, effortPref } from "../agent-ui.js";
+import { agentName, loadModels, agentModelPickerButton, openAgentModelMenu } from "../agent-ui.js";
 import { attachSlashMenu, fetchSlashCommands, workflowFor } from "../slash.js";
 import { mountGallery } from "../gallery.js";
 import { attachMic } from "../voice.js";
@@ -164,7 +164,7 @@ export function renderHome(main) {
       '<button type="button" class="icon-btn" data-slash-open title="Workflows (type /)" aria-label="Workflows">' + icon("slash") + "</button>" +
       '<button type="button" class="icon-btn mic-btn" data-mic aria-label="Talk instead of typing"></button>' +
       '<button type="button" class="picker" data-ratio title="Frame">' + icon("ratio", "i-sm") + "<span>" + esc(ratio.label) + "</span>" + icon("chevDown", "i-sm chev") + "</button>" +
-      '<span class="launch-pickers" data-agent-model>' + agentModelPickerButton(draft.harnessId, draft.modelId, null, "data-agent") + effortPickerButton(draft.harnessId, effortPref(), null, "data-effort") + "</span>" +
+      '<span class="launch-pickers" data-agent-model>' + agentModelPickerButton(draft.harnessId, draft.modelId, null, "data-agent") + "</span>" +
       '<span class="grow"></span>' +
       '<button type="button" class="btn btn-ghost" data-manual title="Start a new project yourself, on a blank drawing">' + icon("pencil", "i-sm") + "<span>Start new project manually</span></button>" +
       '<button type="submit" class="btn btn-primary" data-create' + (ready ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
@@ -332,7 +332,7 @@ export function renderHome(main) {
 
   const paintModel = () => {
     const el = inner.querySelector("[data-agent-model]");
-    if (el) el.innerHTML = agentModelPickerButton(draft.harnessId, draft.modelId, null, "data-agent") + effortPickerButton(draft.harnessId, effortPref(), null, "data-effort");
+    if (el) el.innerHTML = agentModelPickerButton(draft.harnessId, draft.modelId, null, "data-agent");
   };
 
   function projectList(projects) {
@@ -480,11 +480,12 @@ export function renderHome(main) {
             draft.modelId = modelId;
             paintModel();
           },
+          onEffort: (value) => {
+            void setPrefs({ effort: value });
+            paintModel();
+          },
         });
-        return;
       }
-      const effort = event.target.closest("[data-effort]");
-      if (effort) openEffortMenu(effort, draft.harnessId, effortPref(), null, (value) => { void setPrefs({ effort: value }); paintModel(); });
     });
     const setupBtn = inner.querySelector("[data-setup]");
     if (setupBtn) setupBtn.addEventListener("click", () => emit("navigate", { page: "agents" }));

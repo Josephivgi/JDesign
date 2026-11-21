@@ -98,14 +98,14 @@ async function runJeditorSmoke(win, opts) {
       const count = async () => { const p = await window.cutline.aiProjects(); return (Array.isArray(p) ? p : (p && p.projects) || []).length; };
       const before = await count();
       const clicked = [];
-      for (const sel of ['[data-launch] [data-agent]', '[data-launch] [data-effort]', '[data-launch] [data-ratio]']) {
+      for (const sel of ['[data-launch] [data-agent]', '[data-launch] [data-ratio]']) {
         const b = document.querySelector(sel);
         if (!b || b.disabled) continue;
         b.click();
         clicked.push(sel);
         await wait(300);
-        // Only the frame menu gets a pick: an agent or effort pick here would
-        // change what a later real turn runs with.
+        // Only the frame menu gets a pick: an agent, model or effort pick here
+        // would change what a later real turn runs with.
         const item = document.querySelector('.menu .menu-item:not([disabled])');
         if (item && sel === '[data-launch] [data-ratio]') item.click();
         else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -201,8 +201,8 @@ async function runJeditorSmoke(win, opts) {
         if (!m) return { ok: false, why: 'agent did not offer it', offered: (list.availableModels || []).map((x) => x.modelId) };
         document.querySelector('[data-launch] [data-agent]').click();
         await wait(400);
-        // Search when the list has a box, so a model folded under "Older
-        // versions" is found the way a person would find it.
+        // Search, so a model behind "Show more" is found the way a person
+        // would find it.
         const q = document.querySelector('.mp [data-mp-q]');
         if (q && !q.closest('[hidden]')) {
           q.value = m.name;
@@ -210,15 +210,19 @@ async function runJeditorSmoke(win, opts) {
           await wait(300);
         }
         const items = Array.from(document.querySelectorAll('.mp [data-mp-row]'));
-        const item = items.find((el) => (el.querySelector('.ellipsis') || el).textContent === m.name);
+        const item = items.find((el) => (el.querySelector('.mp-name') || el).textContent === m.name);
         if (!item) return { ok: false, why: 'not in menu', menu: items.map((el) => el.textContent).slice(0, 20) };
         item.click();
         await wait(300);
+        // A model pick leaves the popover open on the effort levels; close it.
+        const stayedOpen = Boolean(document.querySelector('.mp'));
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(200);
         const label = document.querySelector('[data-launch] [data-agent]').textContent;
         const box = document.querySelector('[data-launch-input]');
         box.value = ${JSON.stringify(prompt)};
         box.dispatchEvent(new Event('input', { bubbles: true }));
-        return { ok: label.includes(m.name), name: m.name, label, menuCount: items.length };
+        return { ok: label.includes(m.name), name: m.name, label, menuCount: items.length, stayedOpen };
       })()`);
       report.shots.push(await shot("home-model-picked"));
       await js("document.querySelector('[data-create]').click()");
@@ -319,7 +323,7 @@ async function runJeditorSmoke(win, opts) {
           if (!h || !h.available) return { ok: false, why: 'agent not available' };
           document.querySelector('[data-agent]').click();
           await wait(400);
-          const item = Array.from(document.querySelectorAll('.menu [data-mp-agent]')).find((m) => m.textContent.includes(h.name));
+          const item = document.querySelector('.menu [data-mp-agent="' + h.id + '"]');
           if (!item) return { ok: false, why: 'not in menu' };
           item.click();
           await wait(600);

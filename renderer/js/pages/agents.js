@@ -1,6 +1,6 @@
 import { api, store, on, refreshHarnesses, setPrefs, defaultHarnessId } from "../store.js";
 import { esc, icon, toast, confirmDialog, errorText, initials, timeAgo, openDialog, closeDialog } from "../ui.js";
-import { agentIcon } from "../agent-ui.js";
+import { agentIcon, brandAttr } from "../agent-ui.js";
 
 let market = null;
 let registry = null;
@@ -10,7 +10,7 @@ const view = { query: "", filter: "all" };
 
 function logo(name, iconUrl) {
   const img = iconUrl ? agentIcon(iconUrl) : "";
-  return '<span class="agent-logo' + (img ? " has-icon" : "") + '">' + (img || esc(initials(name))) + "</span>";
+  return '<span class="agent-logo' + (img ? " has-icon" : "") + '"' + (img ? brandAttr(name) : "") + ">" + (img || esc(initials(name))) + "</span>";
 }
 
 // The state sits on the name line: plain words when the agent is ready, an
