@@ -499,7 +499,12 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .lc-list { overflow-y: auto; padding: var(--s-1); display: grid; gap: 2px; align-content: start; min-height: 0; max-height: 360px; }
 .lrow { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 2px; border-radius: var(--r-2); cursor: pointer; border: 1px solid transparent; position: relative; }
 .lrow:hover { background: var(--surface-2); }
-.lrow.on, .lrow.on:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+/* The open layer: the soft surface and an edge bar, the same mark the Video
+   rail uses for the open page. No outline, so the row does not read as a
+   focused field. */
+.lrow.on, .lrow.on:hover { background: var(--accent-soft); }
+.lrow.on::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent); }
+.lrow.on.drop-before::before { left: 6px; right: 6px; top: -2px; bottom: auto; width: auto; height: 2px; border-radius: 2px; }
 .lrow .grip { color: var(--text-3); opacity: 0; cursor: grab; display: grid; }
 .lrow .grip svg.i { width: 14px; height: 14px; }
 .lrow:hover .grip { opacity: 1; }

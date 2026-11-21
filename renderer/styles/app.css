@@ -47,6 +47,9 @@
 
   --danger: #ef4444;
   --danger-soft: color-mix(in oklab, var(--danger) 14%, transparent);
+  /* Fills a button that deletes. Darker than --danger so white text passes 4.5:1. */
+  --danger-solid: #d42a2a;
+  --danger-ink: #ffffff;
   --warn: #f59e0b;
   --warn-soft: color-mix(in oklab, var(--warn) 14%, transparent);
   --ok: #22c55e;
@@ -275,7 +278,8 @@ kbd {
   box-shadow: var(--shadow); animation: pop var(--t) var(--ease);
 }
 @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
-.menu-label { padding: 6px 8px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+/* Sentence case, like the labels in Draw's menus: a quiet heading, not a shout. */
+.menu-label { padding: 6px 8px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); }
 .menu-item {
   display: flex; align-items: center; gap: 9px; width: 100%; min-height: 30px; padding: 5px 8px; border: 0;
   border-radius: var(--r-sm); background: transparent; color: var(--text); text-align: left;
@@ -283,9 +287,15 @@ kbd {
 .menu-item:hover, .menu-item.is-active { background: var(--bg-3); }
 .menu-item .i { color: var(--text-2); }
 .menu-item .sub { display: block; color: var(--text-3); font-size: var(--fs-xs); }
-.menu-item .check { margin-left: auto; color: var(--accent-text); }
+.menu-item .check { margin-left: auto; color: var(--accent-text); display: grid; }
+/* The current choice is marked by its surface and weight as well as the
+   check, so it is found without reading down the right edge. */
+.menu-item:has(> .check) { background: color-mix(in oklab, var(--accent) 9%, transparent); font-weight: 600; }
+.menu-item:has(> .check) .sub { font-weight: 400; }
+.menu-item:has(> .check):hover, .menu-item:has(> .check).is-active { background: color-mix(in oklab, var(--accent) 15%, transparent); }
 .menu-item.danger { color: var(--danger); }
 .menu-item.danger .i { color: var(--danger); }
+.menu-item.danger:hover, .menu-item.danger.is-active { background: var(--danger-soft); }
 .menu-item:disabled { opacity: 0.45; pointer-events: none; }
 .menu-sep { height: 1px; margin: 5px 4px; background: var(--line); }
 .menu-search { padding: 3px 3px 6px; }
@@ -312,6 +322,13 @@ kbd {
 .dialog-body { padding: 8px 20px 16px; overflow: auto; min-height: 0; overscroll-behavior: contain; color: var(--text-2); }
 .dialog-body .field { color: var(--text); }
 .dialog-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); padding: 12px 20px 18px; flex: none; }
+/* The answer row of a dialog: the way out is a real button with an edge, and
+   the button that deletes is filled, so the two can not be mistaken at a
+   glance. Focus still starts on Cancel in a delete dialog. */
+.dialog-foot .btn-ghost { border-color: var(--line-2); background: var(--bg-1); color: var(--text); }
+.dialog-foot .btn-ghost:hover { background: var(--bg-3); }
+.dialog-foot .btn-danger { background: var(--danger-solid); border-color: transparent; color: var(--danger-ink); }
+.dialog-foot .btn-danger:hover { background: color-mix(in oklab, var(--danger-solid) 88%, black); border-color: transparent; }
 
 /* ---------- toasts ---------- */
 
@@ -355,13 +372,9 @@ kbd {
 .rail-link.is-on::before {
   content: ""; position: absolute; left: calc((56px - var(--rail)) / 2); top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent);
 }
-/* The studio pair is a switch; the pages under it belong to the Video studio. */
-.rail-sep { flex: none; width: 28px; height: 1px; margin: 6px 0; background: var(--line-2); }
-/* Video Editor / Drawing: the studio selection. A filled tile, no marker bar,
-   and two-line labels so the names fit the 56px rail. */
-.rail-link.is-studio.is-on { background: var(--bg-3); box-shadow: inset 0 0 0 1px var(--line-2); }
-.rail-link.is-studio.is-on::before { display: none; }
-.rail-link.is-studio > span { white-space: normal; line-height: 1.15; text-align: center; max-width: 54px; }
+/* One mark for the current page: the surface, the edge bar and the heavier
+   label. No tile carries its own outline, so two pages never look open at once. */
+.rail-link.is-on { box-shadow: inset 0 0 0 1px var(--line); }
 /* The rail hugs the window edge, so its ring sits inside the button. */
 .rail-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .rail-spacer { flex: 1; }
@@ -371,8 +384,10 @@ kbd {
 /* page scaffold for Home, Library, Agents, Settings */
 .page { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 .page-inner { width: min(1180px, 100%); margin: 0 auto; padding: 28px 32px 48px; }
-.page-head { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--s-4); margin-bottom: 22px; }
-.page-head > .btn, .page-head > .picker { flex: none; }
+/* The page action sits on the title's line on every page, however long the
+   description under the title runs. */
+.page-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--s-4); margin-bottom: 22px; }
+.page-head > .btn, .page-head > .picker { flex: none; margin-top: 1px; }
 .page-head h1 { font-size: var(--fs-2xl); letter-spacing: -0.02em; }
 /* A subtitle stops at a line a person can read, however wide the window is. */
 .page-head p { color: var(--text-2); margin-top: 4px; max-width: 68ch; }
@@ -482,7 +497,7 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
   position: relative; display: grid; border-radius: var(--r-lg); overflow: hidden; background: var(--bg-1);
   border: 1px solid var(--line); text-align: left; padding: 0; transition: border-color var(--t-fast), transform var(--t-fast);
 }
-.proj:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.proj:hover { border-color: var(--line-2); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 /* 16:9 is the shape most videos have, so the usual still fills its card with
    no bars. The still is pinned to the box: a tall one is fitted inside it
    instead of growing past it and being cut off. */
@@ -501,6 +516,13 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 [data-home] .proj-thumb.is-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-2); }
 [data-home] .proj-thumb.is-empty .proj-frame { flex: none; max-width: none; max-height: none; }
 [data-home] .proj-thumb.is-empty .proj-empty-text { position: static; }
+/* The empty frame is a blank sheet in the project's shape, not a dashed box
+   with a plus: the whole card opens the project, so nothing on it should look
+   like a second, smaller button. */
+[data-home] .proj-thumb.is-empty { background: var(--bg-3); }
+[data-home] .proj-thumb.is-empty .proj-frame { border: 1px solid var(--line-2); background: var(--bg-1); box-shadow: var(--shadow-sm); }
+[data-home] .proj-thumb.is-empty .proj-frame .i { display: none; }
+[data-home] .proj-thumb.is-empty .proj-empty-text { color: var(--text-3); font-size: var(--fs-sm); }
 /* No projects yet: one quiet line. The launcher above already has both ways
    to start, so this state repeats neither. */
 .proj-none { padding: var(--s-4) var(--s-5); border: 1px dashed var(--line-2); border-radius: var(--r-lg); color: var(--text-2); }
@@ -583,6 +605,9 @@ html[data-density="compact"] [data-home] .grid { gap: 10px; }
 /* Pinned to the box, so a vertical video or a tall picture is fitted inside
    the tile. Sized by its own shape it grew past the box and was cut off. */
 .tile-thumb img, .tile-thumb video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+/* A file with no still yet is a plate with its kind on it, not a black box
+   that looks like a video that failed to load. */
+[data-lib] .tile-thumb:not([data-kind="audio"]):not(:has(img, video)) { background: var(--bg-3); color: var(--text-3); }
 /* Library tiles in one row share a height: the picture area takes the spare
    room, so a short audio tile beside a video keeps its name on the same line. */
 [data-lib] .tile { grid-template-rows: 1fr auto; }
@@ -618,14 +643,16 @@ html[data-density="compact"] [data-lib] .empty.is-dropzone { padding: 36px 20px;
 /* The name is the part of the bar that gives way in a narrow window, so the
    ratio, Render, Export and the chat toggle are never pushed off the edge. */
 .title-input {
-  height: var(--control); padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: transparent;
+  height: var(--control); padding: 0 8px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent;
   font-weight: 600; font-size: var(--fs-md); color: var(--text); outline: none; width: 280px; max-width: 34vw;
   flex: 0 1 280px; min-width: 96px; text-overflow: ellipsis;
 }
 .topbar > .btn, .topbar > .picker, .topbar > .icon-btn, .topbar > .crumb-link, .topbar > .topbar-sep { flex: none; }
 .topbar > .grow { min-width: 0; }
-.title-input:hover { border-color: var(--line-2); }
-.title-input:focus { border-color: var(--accent-line); background: var(--bg-1); }
+/* At rest the name reads as the project's title, not as a form field. The box
+   comes back on hover and focus, which is when it is one. */
+.title-input:hover { border-color: var(--line-2); background: var(--bg-2); }
+.title-input:focus { border-color: var(--accent); background: var(--bg-1); box-shadow: 0 0 0 3px var(--accent-soft); }
 /* Export is the top bar's primary action, so it owns that slot. The wrapper is
    what the pointer reaches while the button is disabled, and it carries the
    reason in its title. */
@@ -928,8 +955,12 @@ html[data-density="compact"] .cut-track { height: 32px; margin-top: 6px; }
    line under the reply text; only an opened run becomes a card. */
 .steps { border: 1px solid transparent; border-radius: var(--r-lg); overflow: hidden; --tool-state-w: 58px; }
 .steps.is-open { border-color: var(--line); background: var(--bg-2); }
-.steps-head { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; padding: 3px 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); text-align: left; font-size: var(--fs-sm); }
-.steps.is-open .steps-head { min-height: 34px; padding: 6px 10px; gap: 8px; border-radius: calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0; }
+/* Folded, the run is one quiet row with an edge: it reads as something that
+   opens, and its chevron sits at the same place on every row. */
+.steps-head { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-2); color: var(--text-2); text-align: left; font-size: var(--fs-sm); transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast); }
+.steps:not(.is-open) .steps-head .chev { margin-left: auto; }
+.steps:not(.is-open) .steps-head:hover { background: var(--bg-3); border-color: var(--line-2); }
+.steps.is-open .steps-head { min-height: 34px; padding: 6px 10px; gap: 8px; border: 0; background: transparent; border-radius: calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0; }
 .steps-head:hover { color: var(--text); }
 .steps-head > .i:first-child { color: var(--text-3); }
 .steps-count { flex: none; font-weight: 500; }
@@ -1079,12 +1110,18 @@ html[data-density="compact"] .cut-track { height: 32px; margin-top: 6px; }
 .composer-foot .picker { max-width: 100%; }
 .composer-foot .agent-status { padding: 0 4px; font-variant-numeric: tabular-nums; }
 .composer-foot .agent-status:empty { display: none; }
-@container chat (max-width: 350px) {
+/* 460 px covers the chat at its usual width: there the agent's name was cut
+   to one letter ("D...") and pushed the model name into dots as well. */
+@container chat (max-width: 460px) {
   /* The avatar still says which agent, and the tooltip has the name. */
   .composer-foot [data-agent] > .ellipsis { display: none; }
   .composer-foot > [data-agent-slot] { min-width: 0; flex-shrink: 0; }
-  .composer-foot { padding-left: 4px; padding-right: 4px; }
   .composer-foot [data-agent] { padding: 0 4px; gap: 2px; }
+  /* A few pixels back from each picker is what lets "Default model" show whole. */
+  .composer-foot .picker:not([data-agent]) { padding: 0 6px; gap: 4px; }
+}
+@container chat (max-width: 350px) {
+  .composer-foot { padding-left: 4px; padding-right: 4px; }
   .composer-foot [data-model] { padding: 0 6px; gap: 4px; }
   .composer-foot .picker-more { display: none; }
 }
@@ -1097,7 +1134,8 @@ html[data-density="compact"] .cut-track { height: 32px; margin-top: 6px; }
    full control height like the pickers and the send button beside them. */
 .composer-foot .mic-btn, .chat-head [data-speak] { width: var(--control); height: var(--control); }
 .send-btn { width: var(--control); height: var(--control); border-radius: var(--r); border: 0; background: var(--accent-solid, var(--accent)); color: var(--accent-ink); display: grid; place-items: center; flex: none; }
-.send-btn:disabled { background: var(--bg-4); color: var(--text-3); }
+/* Nothing to send yet: an outline, so the empty box does not end in a grey block. */
+.send-btn:disabled { background: transparent; color: var(--text-3); box-shadow: inset 0 0 0 1px var(--line-2); cursor: default; }
 .send-btn.is-stop { background: var(--text); color: var(--bg-1); }
 .composer-hint { display: flex; justify-content: space-between; padding: 6px 4px 0; color: var(--text-3); font-size: var(--fs-xs); }
 
@@ -1108,7 +1146,7 @@ html[data-density="compact"] .cut-track { height: 32px; margin-top: 6px; }
 .slash-menu .slash-item { grid-template-columns: 20px minmax(92px, max-content) minmax(0, 1fr); }
 
 /* Compact, chat side: the rows the density tokens do not reach. */
-html[data-density="compact"] .steps:not(.is-open) .steps-head { min-height: 24px; padding: 2px 0; }
+html[data-density="compact"] .steps:not(.is-open) .steps-head { min-height: 26px; padding: 2px 8px; }
 html[data-density="compact"] .tool-sum,
 html[data-density="compact"] .tool-row.is-static { padding-top: 3px; padding-bottom: 3px; min-height: 26px; }
 html[data-density="compact"] .composer-wrap { padding: 6px 10px 10px; }
@@ -1529,16 +1567,33 @@ html[data-density="compact"] .el-history-wrap > summary { min-height: 36px; }
 
 /* Voice: chat mic and replies read aloud */
 .mic-btn.is-on { color: var(--danger); background: var(--danger-soft); }
-.agent-meta { display: flex; gap: 8px; color: var(--text-3); font-size: var(--fs-xs); margin-left: -6px; opacity: 0; transition: opacity var(--t-fast); }
+.agent-meta { display: flex; gap: 6px; color: var(--text-3); font-size: var(--fs-xs); opacity: 0; transition: opacity var(--t-fast); }
+/* Under a reply the two actions are small buttons, so they look pressable
+   without waiting for a hover underline. */
+.agent-meta .link-btn { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-1); color: var(--text-2); font-weight: 500; transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast); }
+.agent-meta .link-btn:hover { background: var(--bg-3); border-color: var(--line-2); color: var(--text); text-decoration: none; }
 .msg-agent:hover .agent-meta, .msg-agent:focus-within .agent-meta { opacity: 1; }
 .voice-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 
 /* Artifact tabs: Video plus one tab per drawing on the project stage */
-.art-tabs { display: flex; align-items: center; gap: 6px; padding: 8px 12px; flex-wrap: wrap; }
-.art-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-1); color: var(--text-2); font: var(--fs-sm)/1.3 var(--font); cursor: pointer; }
+/* A real tab strip: it sits on the top bar's surface with one hairline under
+   it, the open tab carries the accent line and the heavier name, the others
+   are plain names, and New is an action at the end, not a fourth tab. */
+.art-tabs { display: flex; align-items: center; gap: 2px; min-height: 38px; padding: 0 12px; flex-wrap: wrap; background: var(--bg-1); border-bottom: 1px solid var(--line); }
+.art-tab {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 200px; height: 38px; padding: 0 10px;
+  border: 0; border-radius: var(--r-sm) var(--r-sm) 0 0; background: transparent; color: var(--text-2);
+  font: 500 var(--fs)/1.3 var(--font); cursor: pointer; transition: color var(--t-fast), background var(--t-fast);
+}
+.art-tab .i { color: var(--text-3); }
 .art-tab:hover { background: var(--bg-2); color: var(--text); }
-.art-tab.is-on { color: var(--text); border-color: var(--accent); background: var(--bg-2); }
+.art-tab.is-on { color: var(--text); font-weight: 600; }
+.art-tab.is-on .i { color: var(--accent-text); }
+.art-tab.is-on::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); }
+.art-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.art-tab[data-art-new] { height: var(--control-sm); margin-left: 6px; padding: 0 8px; border-radius: var(--r-sm); color: var(--text-3); font-size: var(--fs-sm); }
+.art-tab[data-art-new]:hover { background: var(--bg-3); color: var(--text); }
 .art-tab .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .art-tabs .grow { flex: 1; }
 

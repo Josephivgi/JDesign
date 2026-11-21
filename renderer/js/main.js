@@ -25,15 +25,14 @@ export function navigate(page, params = {}) {
 }
 
 function railMarkup() {
-  // Inside a project nothing is highlighted: the editor is not one of the rail pages.
-  const page = store.route.page === "editor" ? "" : store.route.page;
+  const page = store.route.page;
+  // Projects is a page like the others: it is marked on the launcher and
+  // inside a project (a project is part of Projects), and nowhere else.
+  const onProjects = page === "home" || page === "editor";
   return (
     '<nav class="rail" aria-label="Main">' +
     '<div class="rail-logo" aria-label="JDesign">JD</div>' +
-    // One studio: a project holds a video and its drawings. The Projects tile
-    // is the way back to the launcher from anywhere.
-    '<button class="rail-link is-studio is-on" data-nav="home" title="Projects">' + icon("film") + "<span>Projects</span></button>" +
-    '<div class="rail-sep" role="separator"></div>' +
+    '<button class="rail-link' + (onProjects ? " is-on" : "") + '" data-nav="home" title="Projects"' + (onProjects ? ' aria-current="page"' : "") + ">" + icon("film") + "<span>Projects</span></button>" +
     NAV.map((item) =>
       '<button class="rail-link' + (page === item.page ? " is-on" : "") + '" data-nav="' + item.page + '" title="' + item.label + " (Ctrl " + item.key + ')">' +
       icon(item.icon) + "<span>" + item.label + "</span></button>",
