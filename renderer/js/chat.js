@@ -7,7 +7,7 @@ import { getSession, setSession, scopeKey, displayItems, resync } from "./sessio
 import { esc, icon, toast, showMenu, confirmDialog, promptDialog, openDialog, autosize, timeAgo, errorText, formatDuration } from "./ui.js";
 import { renderMarkdown } from "./markdown.js";
 import { buildPrompt } from "./prompt.js";
-import { agentAvatar, agentName, loadModels, agentModelPickerButton, openAgentModelMenu, effortPref } from "./agent-ui.js";
+import { agentAvatar, agentName, loadModels, agentModelPickerButton, openAgentModelMenu, effortPickerButton, openEffortMenu, effortPref } from "./agent-ui.js";
 import { mediaChip, pickMedia, wireDrop, importPaths } from "./media.js";
 import { attachSlashMenu, fetchSlashCommands, workflowFor, workflowByName, followUps } from "./slash.js";
 import { attachMic, speak, stopSpeaking, isSpeaking, onSpeakingChange } from "./voice.js";
@@ -142,7 +142,7 @@ export function mountChat(root, ctx) {
     '<button type="button" class="icon-btn icon-btn-sm" data-slash-open title="Workflows (type /)" aria-label="Workflows">' + icon("slash") + "</button>" +
     '<button type="button" class="icon-btn icon-btn-sm mic-btn" data-mic aria-label="Talk instead of typing"></button>' +
     '<span data-mode-slot></span>' +
-    '<span data-agent-slot></span>' +
+    '<span data-agent-slot></span><span data-model-slot></span>' +
     '<span class="grow"></span>' +
     '<span class="agent-status" data-status></span>' +
     '<button class="send-btn" data-send title="Send">' + icon("arrowUp") + "</button>" +
@@ -825,6 +825,7 @@ export function mountChat(root, ctx) {
 
   const paintComposer = () => {
     $("[data-agent-slot]").innerHTML = agentModelPickerButton(st.harnessId, st.modelId, session());
+    $("[data-model-slot]").innerHTML = st.harnessId ? effortPickerButton(st.harnessId, effortPref(), session()) : "";
     $("[data-mode-slot]").innerHTML =
       '<button type="button" class="picker" data-mode title="What this ask is about" aria-label="What this ask is about">' +
       icon(st.mode === "draw" ? "pencil" : "film", "i-sm") + "<span>" + (!st.modePicked ? "Auto" : st.mode === "draw" ? "Draw" : "Video") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
@@ -1198,10 +1199,13 @@ export function mountChat(root, ctx) {
           paintComposer();
           if (st.chat) await api.editorChatUpdate({ id: st.chat.id, patch: { model: modelId }, light: true }).catch(() => {});
         },
-        onEffort: (value) => {
-          void setPrefs({ effort: value });
-          paintComposer();
-        },
+      }, { above: true });
+      return;
+    }
+    if (t.closest("[data-effort]")) {
+      openEffortMenu(t.closest("[data-effort]"), st.harnessId, effortPref(), session(), (value) => {
+        void setPrefs({ effort: value });
+        paintComposer();
       }, { above: true });
     }
   });

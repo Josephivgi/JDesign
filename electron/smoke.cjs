@@ -98,7 +98,7 @@ async function runJeditorSmoke(win, opts) {
       const count = async () => { const p = await window.cutline.aiProjects(); return (Array.isArray(p) ? p : (p && p.projects) || []).length; };
       const before = await count();
       const clicked = [];
-      for (const sel of ['[data-launch] [data-agent]', '[data-launch] [data-ratio]']) {
+      for (const sel of ['[data-launch] [data-agent]', '[data-launch] [data-effort]', '[data-launch] [data-ratio]']) {
         const b = document.querySelector(sel);
         if (!b || b.disabled) continue;
         b.click();
@@ -214,15 +214,13 @@ async function runJeditorSmoke(win, opts) {
         if (!item) return { ok: false, why: 'not in menu', menu: items.map((el) => el.textContent).slice(0, 20) };
         item.click();
         await wait(300);
-        // A model pick leaves the popover open on the effort levels; close it.
-        const stayedOpen = Boolean(document.querySelector('.mp'));
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        await wait(200);
+        // A model pick closes the popover.
+        const closed = !document.querySelector('.mp');
         const label = document.querySelector('[data-launch] [data-agent]').textContent;
         const box = document.querySelector('[data-launch-input]');
         box.value = ${JSON.stringify(prompt)};
         box.dispatchEvent(new Event('input', { bubbles: true }));
-        return { ok: label.includes(m.name), name: m.name, label, menuCount: items.length, stayedOpen };
+        return { ok: label.includes(m.name) && closed, name: m.name, label, menuCount: items.length, closed };
       })()`);
       report.shots.push(await shot("home-model-picked"));
       await js("document.querySelector('[data-create]').click()");
