@@ -153,9 +153,9 @@ export function renderEditor(main, projectId, opts) {
     const bar = $("[data-art-tabs]");
     if (!bar) return;
     const tabs = [];
-    if (hasVideoContent() || st.videoOn || !st.drawings.length) tabs.push('<button class="art-tab' + (st.tab === "video" ? " is-on" : "") + '" data-art="video" title="The project video">' + icon("film", "i-sm") + "<span>Video</span></button>");
+    if (hasVideoContent() || !st.drawings.length) tabs.push('<button class="art-tab' + (st.tab === "video" ? " is-on" : "") + '" data-art="video" title="The project video">' + icon("film", "i-sm") + "<span>Video</span></button>");
     for (const d of st.drawings) tabs.push('<button class="art-tab' + (st.tab === d.id ? " is-on" : "") + '" data-art="' + esc(d.id) + '" title="' + esc(d.name) + '">' + icon("pencil", "i-sm") + '<span class="ellipsis">' + esc(d.name) + "</span></button>");
-    tabs.push('<button class="art-tab" data-art-new title="Add a drawing or a video to this project (Ctrl D adds a drawing)">' + icon("plus", "i-sm") + "<span>New</span></button>");
+    tabs.push('<button class="art-tab" data-art-new title="New drawing in this project (Ctrl D)">' + icon("plus", "i-sm") + "<span>New</span></button>");
     if (st.tab !== "video") {
       tabs.push('<span class="grow"></span>');
       tabs.push('<button class="btn btn-sm" data-use-video title="Add this drawing to the project footage">' + icon("film", "i-sm") + "<span>Use in video</span></button>");
@@ -241,10 +241,7 @@ export function renderEditor(main, projectId, opts) {
     }
     const addBtn = event.target.closest("[data-art-new]");
     if (addBtn) {
-      showMenu(addBtn, [
-        { label: "New drawing", sub: "A blank drawing in this project", onSelect: () => { void newDrawing(); } },
-        { label: "Video", sub: "Show this project's video", onSelect: () => { st.videoOn = true; setTab("video"); } },
-      ], { width: 240 });
+      void newDrawing();
       return;
     }
     if (event.target.closest("[data-use-video]")) {

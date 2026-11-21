@@ -322,6 +322,65 @@ export function showMenu(anchor, items, opts = {}) {
   return el;
 }
 
+// A free-form popover in the menu slot: opening one closes any open menu, and
+// it closes the same ways a menu does (outside press, Escape, resize, blur).
+// The caller paints into the returned element and calls place() after a
+// repaint that changed its size. opts.isAnchor(target) says a press belongs
+// to the control that opened it, for a control that is redrawn while open.
+export function showPopover(anchor, opts = {}) {
+  closeMenu();
+  const el = document.createElement("div");
+  el.className = "menu" + (opts.className ? " " + opts.className : "");
+  el.setAttribute("role", "dialog");
+  if (opts.label) el.setAttribute("aria-label", opts.label);
+  document.getElementById("layer").appendChild(el);
+  // Measured once: the anchor may be redrawn (and so detached) while open.
+  const rect = anchor.getBoundingClientRect();
+  const place = () => {
+    const room = { below: window.innerHeight - rect.bottom - 14, above: rect.top - 14 };
+    // The asked side when it fits, else the side with more room, and never
+    // taller than that room: the popover scrolls inside instead.
+    const want = opts.above ? "above" : "below";
+    const other = opts.above ? "below" : "above";
+    el.style.maxHeight = "";
+    const natural = el.offsetHeight;
+    const side = natural <= room[want] || room[want] >= room[other] ? want : other;
+    el.style.maxHeight = Math.max(160, Math.min(natural, room[side])) + "px";
+    const mw = el.offsetWidth;
+    const mh = el.offsetHeight;
+    let left = opts.align === "end" ? rect.right - mw : rect.left;
+    left = Math.max(8, Math.min(left, window.innerWidth - mw - 8));
+    el.style.left = left + "px";
+    el.style.top = Math.max(8, side === "above" ? rect.top - mh - 6 : rect.bottom + 6) + "px";
+  };
+  const m = {
+    el,
+    onClose: opts.onClose,
+    close: () => closeMenu(),
+    outside: (event) => {
+      if (el.contains(event.target) || anchor.contains(event.target)) return;
+      if (opts.isAnchor && opts.isAnchor(event.target)) return;
+      closeMenu();
+    },
+    key: (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu();
+      } else if (opts.onKey) opts.onKey(event);
+    },
+  };
+  openMenu = m;
+  setTimeout(() => {
+    if (openMenu !== m) return;
+    document.addEventListener("pointerdown", m.outside, true);
+    document.addEventListener("keydown", m.key, true);
+    window.addEventListener("resize", m.close);
+    window.addEventListener("blur", m.close);
+  }, 0);
+  return { el, place, isOpen: () => openMenu === m, close: () => { if (openMenu === m) closeMenu(); } };
+}
+
 // ---------- dialogs ----------
 
 let dialogStack = [];

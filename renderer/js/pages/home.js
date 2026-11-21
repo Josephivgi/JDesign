@@ -1,7 +1,7 @@
-import { api, store, on, emit, refreshProjects, defaultHarnessId, thumbFor } from "../store.js";
+import { api, store, on, emit, refreshProjects, defaultHarnessId, thumbFor, setPrefs } from "../store.js";
 import { esc, icon, toast, showMenu, confirmDialog, promptDialog, autosize, timeAgo, errorText } from "../ui.js";
 import { mediaChip, pickMedia, wireDrop, importPaths } from "../media.js";
-import { agentPickerButton, agentName, openAgentMenu, loadModels, modelPickerButton, openModelMenu } from "../agent-ui.js";
+import { agentName, loadModels, agentModelPickerButton, openAgentModelMenu } from "../agent-ui.js";
 import { attachSlashMenu, fetchSlashCommands, workflowFor } from "../slash.js";
 import { mountGallery } from "../gallery.js";
 import { attachMic } from "../voice.js";
@@ -28,13 +28,7 @@ const IDEAS = [
 ];
 
 // What the launcher holds survives a trip to another page.
-const KINDS = [
-  { id: "video", label: "Video", sub: "The agent edits or builds a video" },
-  { id: "draw", label: "Draw", sub: "The agent draws" },
-  { id: "video-none", label: "Video, no AI", sub: "Start an empty video, ask nothing" },
-  { id: "draw-none", label: "Draw, no AI", sub: "Start a blank drawing, ask nothing" },
-];
-const draft = { kind: "video", text: "", pins: [], ratio: "16/9", harnessId: "", picked: false, modelId: "", modelFor: "" };
+const draft = { text: "", pins: [], ratio: "16/9", harnessId: "", picked: false, modelId: "", modelFor: "" };
 // Project list view state, kept across page visits.
 const list = { query: "", sort: "recent" };
 const SEARCH_AT = 6;
@@ -160,7 +154,7 @@ export function renderHome(main) {
       "</div>" +
       '<div data-proj-list>' + projectList(projects) + "</div>";
     inner.innerHTML =
-      '<section class="hero"><h1>What are we making?</h1><p>Describe the video. An agent edits it with your footage, or builds it from scratch.</p></section>' +
+      '<section class="hero"><h1>What are we making?</h1><p>Describe a video or a drawing. An agent makes it, or start a drawing yourself.</p></section>' +
       setup +
       '<form class="launch" data-launch>' +
       '<div class="launch-pins" data-pins></div>' +
@@ -169,20 +163,53 @@ export function renderHome(main) {
       '<button type="button" class="icon-btn" data-attach title="Attach media from your library (optional)" aria-label="Attach media">' + icon("paperclip") + "</button>" +
       '<button type="button" class="icon-btn" data-slash-open title="Workflows (type /)" aria-label="Workflows">' + icon("slash") + "</button>" +
       '<button type="button" class="icon-btn mic-btn" data-mic aria-label="Talk instead of typing"></button>' +
-      '<button type="button" class="picker" data-kind title="What to start">' + icon("sparkles", "i-sm") + "<span>" + esc((KINDS.find((k) => k.id === draft.kind) || KINDS[0]).label) + "</span>" + icon("chevDown", "i-sm chev") + "</button>" +
       '<button type="button" class="picker" data-ratio title="Frame">' + icon("ratio", "i-sm") + "<span>" + esc(ratio.label) + "</span>" + icon("chevDown", "i-sm chev") + "</button>" +
-      agentPickerButton(draft.harnessId, "data-agent") +
-      '<span data-home-model>' + (draft.harnessId ? modelPickerButton(draft.harnessId, draft.modelId, null, "data-model") : "") + "</span>" +
+      '<span class="launch-pickers" data-agent-model>' + agentModelPickerButton(draft.harnessId, draft.modelId, null, "data-agent") + "</span>" +
       '<span class="grow"></span>' +
-      '<button type="button" class="btn btn-ghost" data-blank title="Start an empty project and add clips yourself">' + icon("plus", "i-sm") + "<span>Blank project</span></button>" +
-      '<button type="submit" class="btn btn-primary" data-create' + (ready || /none$/.test(draft.kind) ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
+      '<button type="button" class="btn btn-ghost" data-manual title="Start a new project yourself, on a blank drawing">' + icon("pencil", "i-sm") + "<span>Start new project manually</span></button>" +
+      '<button type="submit" class="btn btn-primary" data-create' + (ready ? "" : ' disabled title="Set up an agent first"') + ">" + icon("sparkles") + "Create</button>" +
       "</div></form>" +
       '<div class="chips">' + IDEAS.map((idea, i) => '<button type="button" class="chip" data-idea="' + i + '" title="' + esc(idea.text.trim()) + (idea.clip ? " (asks you to pick a video)" : "") + '">' + icon(idea.icon, "i-sm") + esc(idea.label) + "</button>").join("") + "</div>" +
+      drawSplit() +
       (projectsFirst ? projectsHtml + '<div class="gallery" data-gallery></div>' : '<div class="gallery" data-gallery></div>' + projectsHtml) +
       '<div data-chats></div>';
     paintPins();
     wire();
     drawChats();
+  };
+
+  // Under the prompt box the page splits in half: starting a new drawing on
+  // one side, the drawings that already exist on the other.
+  const drawSplit = () => {
+    const projIds = new Set((store.projects || []).map((p) => p.id));
+    const nameOf = (id) => ((store.projects || []).find((p) => p.id === id) || {}).name || "A project";
+    const rows = (store.drawingsAll || []).filter((d) => d && projIds.has(d.projectId));
+    return (
+      '<div class="draw-split">' +
+      '<section class="draw-half">' +
+      '<div class="draw-new">' +
+      '<span class="draw-new-ic">' + icon("pencil", "i-lg") + "</span>" +
+      "<strong>Start new drawing</strong>" +
+      "<p>Opens a blank drawing with the shape and paint tools, inside a new project.</p>" +
+      '<button type="button" class="btn" data-draw-new>' + icon("plus", "i-sm") + "New drawing</button>" +
+      "</div>" +
+      "</section>" +
+      '<section class="draw-half">' +
+      '<div class="draw-half-head"><strong>Your drawings</strong>' + (rows.length ? '<span class="count">' + rows.length + "</span>" : "") + "</div>" +
+      (rows.length
+        ? '<div class="draw-rows">' +
+          rows.slice(0, 12).map((d) =>
+            '<button type="button" class="draw-row" data-draw-open="' + esc(d.id) + '" data-draw-proj="' + esc(d.projectId) + '" title="Open ' + esc(d.name) + '">' +
+            '<span class="draw-thumb">' + (d.thumb ? '<img src="' + esc(d.thumb) + '" alt="" loading="lazy" draggable="false">' : icon("pencil", "i-sm")) + "</span>" +
+            '<span class="draw-row-main"><span class="ellipsis">' + esc(d.name) + "</span><small>" + esc(nameOf(d.projectId)) + (d.updated ? " \u00b7 " + timeAgo(d.updated) : "") + "</small></span>" +
+            icon("chevRight", "i-sm") +
+            "</button>",
+          ).join("") +
+          "</div>"
+        : '<p class="draw-none">No drawings yet. Start one on the left.</p>') +
+      "</section>" +
+      "</div>"
+    );
   };
 
   // Chat history across both studios, newest first. The label at the end of
@@ -304,8 +331,8 @@ export function renderHome(main) {
   };
 
   const paintModel = () => {
-    const el = inner.querySelector("[data-home-model]");
-    if (el) el.innerHTML = draft.harnessId ? modelPickerButton(draft.harnessId, draft.modelId, null, "data-model") : "";
+    const el = inner.querySelector("[data-agent-model]");
+    if (el) el.innerHTML = agentModelPickerButton(draft.harnessId, draft.modelId, null, "data-agent");
   };
 
   function projectList(projects) {
@@ -338,12 +365,15 @@ export function renderHome(main) {
     wireCards();
   };
 
-  const blankProject = async () => {
+  // A manual project starts on a blank drawing with the full drawing tools:
+  // drawing is the part a person starts by hand; video comes from the agent.
+  const manualProject = async () => {
     try {
       const project = await api.aiProjectCreate({ name: untitledName(), aspectRatio: draft.ratio, assetIds: draft.pins.slice() });
+      const d = await api.jdrawDrawingCreate({ projectId: project.id, name: "Drawing 1" }).catch(() => null);
       draft.pins = [];
       await refreshProjects();
-      emit("navigate", { page: "editor", params: { projectId: project.id } });
+      emit("navigate", { page: "editor", params: d && d.id ? { projectId: project.id, drawingId: d.id } : { projectId: project.id } });
     } catch (error) {
       toast(errorText(error), true);
     }
@@ -365,20 +395,14 @@ export function renderHome(main) {
     try {
       // A command typed without opening the menu still needs its label for the name.
       if (text.startsWith("/")) await fetchSlashCommands({ harnessId: draft.harnessId });
-      const drawing = draft.kind === "draw" || draft.kind === "draw-none";
-      const noAi = draft.kind === "video-none" || draft.kind === "draw-none";
-      const project = await api.aiProjectCreate({ name: noAi && !text ? untitledName() : projectName(text, draft.harnessId), aspectRatio: draft.ratio, assetIds: draft.pins.slice() });
-      // No AI: the project just starts. Nothing is sent to an agent.
-      store.pendingLaunch = text && !noAi ? { projectId: project.id, text, harnessId: draft.harnessId, modelId: draft.modelId } : null;
-      let drawingId = "";
-      if (drawing) {
-        const d = await api.jdrawDrawingCreate({ projectId: project.id, name: "Drawing 1" }).catch(() => null);
-        if (d && d.id) drawingId = d.id;
-      }
+      const project = await api.aiProjectCreate({ name: projectName(text, draft.harnessId), aspectRatio: draft.ratio, assetIds: draft.pins.slice() });
+      // What gets made (a video, a drawing, both) is up to the ask: the
+      // project chat has the video and drawing tools in the same session.
+      store.pendingLaunch = text ? { projectId: project.id, text, harnessId: draft.harnessId, modelId: draft.modelId } : null;
       draft.text = "";
       draft.pins = [];
       await refreshProjects();
-      emit("navigate", { page: "editor", params: drawingId ? { projectId: project.id, drawingId } : { projectId: project.id } });
+      emit("navigate", { page: "editor", params: { projectId: project.id } });
     } catch (error) {
       toast(errorText(error), true);
       if (btn) btn.disabled = false;
@@ -439,27 +463,29 @@ export function renderHome(main) {
       draft.pins = draft.pins.filter((id) => id !== x.dataset.unpin);
       paintPins();
     });
-    inner.querySelector("[data-kind]").addEventListener("click", (event) => {
-      showMenu(event.currentTarget, KINDS.map((k) => ({ label: k.label, sub: k.sub, checked: k.id === draft.kind, onSelect: () => { draft.kind = k.id; paint(); } })), { width: 260 });
-    });
     inner.querySelector("[data-ratio]").addEventListener("click", (event) => {
       showMenu(event.currentTarget, RATIOS.map((r) => ({ label: r.label, sub: r.sub, checked: r.id === draft.ratio, onSelect: () => { draft.ratio = r.id; paint(); } })), { width: 220 });
     });
-    inner.querySelector("[data-agent]").addEventListener("click", (event) => {
-      openAgentMenu(event.currentTarget, draft.harnessId, (id) => {
-        draft.harnessId = id;
-        draft.picked = true;
-        syncModel();
-        paint();
-      });
-    });
-    inner.querySelector("[data-home-model]").addEventListener("click", (event) => {
-      const btn = event.target.closest("[data-model]");
-      if (!btn || btn.disabled) return;
-      openModelMenu(btn, draft.harnessId, draft.modelId, null, (modelId) => {
-        draft.modelId = modelId;
-        paintModel();
-      });
+    inner.querySelector("[data-agent-model]").addEventListener("click", (event) => {
+      const agent = event.target.closest("[data-agent]");
+      if (agent) {
+        openAgentModelMenu(agent, draft.harnessId, draft.modelId, null, {
+          onAgent: (id) => {
+            draft.harnessId = id;
+            draft.picked = true;
+            syncModel();
+            paint();
+          },
+          onModel: (modelId) => {
+            draft.modelId = modelId;
+            paintModel();
+          },
+          onEffort: (value) => {
+            void setPrefs({ effort: value });
+            paintModel();
+          },
+        });
+      }
     });
     const setupBtn = inner.querySelector("[data-setup]");
     if (setupBtn) setupBtn.addEventListener("click", () => emit("navigate", { page: "agents" }));
@@ -513,7 +539,10 @@ export function renderHome(main) {
       await refreshProjects();
       toast("Empty projects removed");
     });
-    inner.querySelectorAll("[data-blank]").forEach((b) => b.addEventListener("click", () => void blankProject()));
+    inner.querySelectorAll("[data-manual], [data-draw-new]").forEach((b) => b.addEventListener("click", () => void manualProject()));
+    inner.querySelectorAll("[data-draw-open]").forEach((b) => b.addEventListener("click", () => {
+      emit("navigate", { page: "editor", params: { projectId: b.dataset.drawProj, drawingId: b.dataset.drawOpen } });
+    }));
     const q = inner.querySelector("[data-proj-q]");
     if (q) q.addEventListener("input", () => {
       list.query = q.value;

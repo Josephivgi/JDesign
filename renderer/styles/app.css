@@ -46,6 +46,13 @@
   --t: 180ms;
 
   --danger: #ef4444;
+  /* Agent and model marks that have a color of their own. */
+  --brand-claude: #d97757;
+  --brand-gemini: #4285f4;
+  --brand-mistral: #fa520f;
+  --brand-qwen: #7b76f2;
+  --brand-muse: #0866ff;
+  --brand-kiro: #9a5cff;
   --danger-soft: color-mix(in oklab, var(--danger) 14%, transparent);
   /* Fills a button that deletes. Darker than --danger so white text passes 4.5:1. */
   --danger-solid: #d42a2a;
@@ -302,6 +309,65 @@ kbd {
 .menu-search .input { height: 30px; }
 .menu-empty { padding: 10px 8px; color: var(--text-3); }
 
+/* Marks: an agent's or a model maker's logo with nothing behind it. One that
+   has a brand color wears it; the rest take the text color. */
+[data-brand="claude"] { --brand: var(--brand-claude); }
+[data-brand="gemini"] { --brand: var(--brand-gemini); }
+[data-brand="mistral"] { --brand: var(--brand-mistral); }
+[data-brand="qwen"] { --brand: var(--brand-qwen); }
+[data-brand="muse"] { --brand: var(--brand-muse); }
+[data-brand="kiro"] { --brand: var(--brand-kiro); }
+.glyph { flex: none; width: 16px; height: 16px; display: inline-grid; place-items: center; color: var(--brand, var(--text)); }
+.glyph > .reg-icon { width: 100%; height: 100%; }
+.glyph-lg { width: 20px; height: 20px; }
+.glyph.is-plain { color: var(--text-3); }
+.glyph-text { font-size: 9px; font-weight: 700; letter-spacing: -0.03em; color: var(--text-2); }
+
+/* The agent, model and effort picker: one button. The agent's mark and name,
+   the model after a rule, the effort after another. */
+.picker-am { max-width: 380px; gap: 7px; }
+.picker-am > .pk-agent, .picker-am > .pk-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-am > .pk-agent { flex: 0 100000 auto; color: var(--text); }
+.picker-am > .pk-model { flex: 0 1 auto; padding-left: 7px; border-left: 1px solid var(--line-2); font-weight: 400; }
+.picker-am > .pk-fx { flex: none; display: inline-flex; align-items: center; gap: 5px; padding-left: 7px; border-left: 1px solid var(--line-2); font-weight: 400; }
+.picker-am:hover > .pk-model, .picker-am:hover > .pk-fx { color: var(--text); }
+
+/* Effort as rising bars, filled up to the level. */
+.fx-bars { height: 14px; flex: none; fill: currentColor; color: var(--text); }
+
+/* The picker's popover: a rail of agent marks, the picked agent's models, and
+   the effort levels. Its size is fixed, so switching agents never moves a
+   row from under the pointer. */
+.menu.mp { display: flex; padding: 0; width: 560px; height: 348px; max-width: calc(100vw - 16px); overflow: hidden; }
+.mp-rail { flex: 0 0 44px; min-height: 0; display: flex; flex-direction: column; align-items: center; background: var(--bg-1); border-right: 1px solid var(--line); }
+.mp-rail-scroll { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; overflow-y: auto; scrollbar-width: none; }
+.mp-rail-btn { position: relative; flex: none; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); }
+.mp-rail-btn:hover, .mp-rail-btn.is-on { background: var(--bg-3); }
+/* The picked agent: a bar on the rail's inner edge. */
+.mp-rail-btn.is-on::after { content: ""; position: absolute; right: -6px; top: 7px; bottom: 7px; width: 3px; border-radius: 3px 0 0 3px; background: var(--text); }
+.mp-rail-btn.is-missing { opacity: 0.4; }
+.mp-rail-btn.is-missing:hover { opacity: 0.8; }
+.mp-rail-add { margin: 6px 0; color: var(--text-3); }
+.mp-rail-add:hover { color: var(--text); }
+.mp-head { flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.mp-search > .i { flex: none; color: var(--text-3); }
+.mp-search > input { flex: 1 1 0; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; }
+.mp-search > input::placeholder { color: var(--text-3); }
+.mp-models { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.mp-list, .mp-fx-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 5px; }
+.mp-row { flex: none; height: 32px; min-height: 32px; padding: 0 8px; gap: 8px; }
+.mp-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-desc { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: var(--fs-sm); }
+.mp-row > .check { flex: none; margin-left: 0; }
+.mp-more { color: var(--text-2); padding-left: 32px; }
+.mp-note { display: flex; align-items: center; gap: 8px; padding: 10px 8px; color: var(--text-3); font-size: var(--fs-sm); line-height: 1.4; }
+.mp-foot { padding: 8px 8px 4px; color: var(--text-3); font-size: var(--fs-xs); }
+.mp-effort { flex: 0 0 172px; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+.mp-effort > .mp-head { justify-content: space-between; font-size: var(--fs-sm); font-weight: 600; }
+.mp-head-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: var(--text-3); }
+.mp-fx-row > .mp-name { flex: 1 1 0; }
+.mp-fx-help { flex: none; min-height: 46px; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--text-3); font-size: var(--fs-xs); line-height: 1.4; }
+
 /* ---------- dialogs ---------- */
 
 .scrim {
@@ -432,7 +498,7 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 .hero p { color: var(--text-2); margin-top: 8px; font-size: var(--fs-md); }
 
 .launch {
-  width: min(840px, 100%); margin: 26px auto 0; border-radius: var(--r-xl); background: var(--bg-2);
+  width: min(900px, 100%); margin: 26px auto 0; border-radius: var(--r-xl); background: var(--bg-2);
   border: 1px solid var(--line-2); box-shadow: var(--shadow-sm); transition: border-color var(--t), box-shadow var(--t);
   /* The foot is a row of pickers: it measures itself against the box, not the
      window, so the Create button never wraps away from them. */
@@ -444,7 +510,7 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
   resize: none; background: transparent; font-size: var(--fs-md); line-height: 1.55;
 }
 .launch textarea::placeholder { color: var(--text-3); }
-.launch-setup { width: min(840px, 100%); margin: 22px auto -8px; padding: 10px 12px; }
+.launch-setup { width: min(900px, 100%); margin: 22px auto -8px; padding: 10px 12px; }
 /* The shared notice sets its own margin later in this file; on Home the setup
    notice stays centred over the prompt box it explains. */
 [data-home] .launch-setup { margin: 22px auto -8px; }
@@ -458,12 +524,19 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 [data-home] .launch-foot .icon-btn { width: var(--control); height: var(--control); border-radius: var(--r); }
 /* A long agent or model name shortens, it never pushes Create off the row. */
 [data-home] .launch-foot .picker { min-width: 0; }
+[data-home] .launch-foot .launch-pickers { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+/* The frame keeps its word; the agent name is what shortens. */
+[data-home] .launch-foot [data-ratio] { flex: none; }
+/* A box too narrow for every word: the effort bars still show the level. */
+@container (max-width: 760px) {
+  [data-home] .launch-foot .picker-am .pk-fx-name { display: none; }
+}
 [data-home] .launch-foot .picker > span:not(.agent-avatar) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Narrow box: the secondary action keeps its icon and its accessible name,
    and only the visible words go. */
 @container (max-width: 700px) {
-  [data-home] .launch-foot [data-blank] { padding: 0 10px; }
-  [data-home] .launch-foot [data-blank] span {
+  [data-home] .launch-foot [data-manual] { padding: 0 10px; }
+  [data-home] .launch-foot [data-manual] span {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
 }
@@ -483,6 +556,27 @@ html[data-density="compact"] .dialog-foot { padding: 10px 16px 14px; }
 [data-home] .chip .i { color: var(--text-3); transition: color var(--t-fast); }
 [data-home] .chip:hover { background: var(--bg-3); border-color: var(--line-2); }
 [data-home] .chip:hover .i { color: var(--accent-text); }
+
+/* Under the prompt box the page splits in half: starting a new drawing on
+   one side, the drawings that already exist on the other. */
+.draw-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+.draw-half { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-1); min-width: 0; }
+.draw-new { display: grid; justify-items: center; align-content: center; text-align: center; gap: 8px; padding: 22px 18px; height: 100%; box-sizing: border-box; }
+.draw-new-ic { color: var(--text-3); }
+.draw-new strong { font-size: var(--fs-md); }
+.draw-new p { color: var(--text-2); font-size: var(--fs-sm); max-width: 36ch; }
+.draw-half-head { display: flex; align-items: center; gap: var(--s-2); padding: 12px 14px 8px; font-size: var(--fs-md); }
+.draw-half-head .count { color: var(--text-3); font-weight: 500; }
+.draw-rows { display: grid; max-height: 236px; overflow-y: auto; padding: 0 6px 8px; }
+.draw-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 0; background: transparent; border-radius: var(--r); text-align: left; color: var(--text); font-size: var(--fs); }
+.draw-row:hover { background: var(--bg-2); }
+.draw-thumb { width: 56px; height: 40px; flex: none; border-radius: var(--r-sm); background: var(--bg-2); border: 1px solid var(--line); color: var(--text-3); display: grid; place-items: center; overflow: hidden; }
+.draw-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.draw-row-main { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.draw-row-main small { color: var(--text-3); font-size: var(--fs-sm); }
+.draw-row > .i-sm { color: var(--text-3); flex: none; }
+.draw-none { padding: 0 14px 16px; color: var(--text-3); font-size: var(--fs-sm); }
+@media (max-width: 760px) { .draw-split { grid-template-columns: 1fr; } }
 
 .media-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 3px; border-radius: var(--r-sm);
@@ -1098,32 +1192,33 @@ html[data-density="compact"] .cut-track { height: 32px; margin-top: 6px; }
 .composer-foot { display: flex; align-items: center; gap: 2px; padding: 4px 6px 6px; min-width: 0; }
 /* The icon buttons, the timer and Send keep their size. The two pickers are
    the part that gives way: the agent name first (its avatar still says which
-   agent), then the model name, so the row shows one cut name and not two. */
+   agent), then the effort name (its bars still show the level), and the model
+   name last, so the row never shows two cut names. */
 .composer-foot > .icon-btn, .composer-foot > .agent-status { flex: none; }
-.composer-foot > [data-agent-slot], .composer-foot > [data-model-slot] { display: flex; min-width: 0; }
-/* The agent's share of the shrink is large enough that the model's rounds to
-   nothing until the agent name is gone. */
-.composer-foot > [data-agent-slot] { flex: 0 100000 auto; min-width: 60px; }
-.composer-foot > [data-model-slot] { flex: 0 1 auto; }
-.composer-foot .picker > .agent-avatar { flex: none; }
+.composer-foot > [data-agent-slot] { display: flex; flex: 0 1 auto; min-width: 58px; }
 .composer-foot > .grow { flex: 1 1 0; }
 .composer-foot .picker { max-width: 100%; }
 .composer-foot .agent-status { padding: 0 4px; font-variant-numeric: tabular-nums; }
 .composer-foot .agent-status:empty { display: none; }
-/* 460 px covers the chat at its usual width: there the agent's name was cut
-   to one letter ("D...") and pushed the model name into dots as well. */
-@container chat (max-width: 460px) {
-  /* The avatar still says which agent, and the tooltip has the name. */
-  .composer-foot [data-agent] > .ellipsis { display: none; }
-  .composer-foot > [data-agent-slot] { min-width: 0; flex-shrink: 0; }
-  .composer-foot [data-agent] { padding: 0 4px; gap: 2px; }
-  /* A few pixels back from each picker is what lets "Default model" show whole. */
-  .composer-foot .picker:not([data-agent]) { padding: 0 6px; gap: 4px; }
+@container chat (max-width: 560px) {
+  /* The mark still says which agent, and the tooltip has the name. */
+  .composer-foot .picker-am > .pk-agent { display: none; }
+  .composer-foot .picker-am > .pk-model { padding-left: 0; border-left: 0; }
 }
-@container chat (max-width: 350px) {
+@container chat (max-width: 440px) {
+  /* The bars still show the level, and the tooltip has its name. */
+  .composer-foot .picker-am .pk-fx-name { display: none; }
+}
+@container chat (max-width: 400px) {
+  /* The model name goes last: the tooltip and the popover still have it. */
+  .composer-foot .picker-am > .pk-model { display: none; }
+  .composer-foot .picker-am > .pk-fx { padding-left: 0; border-left: 0; }
+}
+@container chat (max-width: 330px) {
   .composer-foot { padding-left: 4px; padding-right: 4px; }
-  .composer-foot [data-model] { padding: 0 6px; gap: 4px; }
-  .composer-foot .picker-more { display: none; }
+  .composer-foot > [data-agent-slot] { min-width: 0; }
+  .composer-foot .picker-am > .chev { display: none; }
+  .composer-foot .picker-am { padding: 0 4px; }
 }
 /* The two pickers and the send button share one height and one radius, so the
    row reads as one control strip. The icon buttons stay small: they are
@@ -1319,6 +1414,9 @@ html[data-density="compact"] .set-row { min-height: calc(var(--control) + 20px);
 .market-desc { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.45; flex: 1; min-height: calc(1.45em * 3); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .market-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--control-sm); }
 .agent-logo.has-icon, .agent-avatar.has-icon { color: var(--text); }
+/* A mark with a brand color wears it on a tint of the same color. */
+.agent-avatar.has-icon[data-brand] { color: var(--brand); background: color-mix(in oklab, var(--brand) 16%, transparent); }
+.agent-logo.has-icon[data-brand] { color: var(--brand); }
 .reg-icon { display: block; width: 60%; height: 60%; background: currentColor; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; -webkit-mask-size: contain; mask-size: contain; }
 .agent-logo .reg-icon { width: 22px; height: 22px; }
 

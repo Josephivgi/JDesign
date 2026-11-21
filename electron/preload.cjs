@@ -266,6 +266,7 @@ contextBridge.exposeInMainWorld("cutline", {
   acpAgentAdd: (payload) => ipcRenderer.invoke("acp-agent-add", payload),
   acpAgentRemove: (payload) => ipcRenderer.invoke("acp-agent-remove", payload),
   acpRegistry: (payload) => ipcRenderer.invoke("acp-registry", payload),
+  acpRegistryIcons: () => ipcRenderer.invoke("acp-registry-icons"),
   acpRegistryInstall: (payload) => ipcRenderer.invoke("acp-registry-install", payload),
   onAcpRegistryProgress: (handler) => {
     const listen = (_event, message) => handler(message);

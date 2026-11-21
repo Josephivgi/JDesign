@@ -631,7 +631,7 @@ function createAcpHost(host, dependencies) {
   function snapshot(payload, lean) {
     const ids = scope(payload);
     const session = sessions.get(key(ids));
-    if (!session) return Object.assign({}, ids, { seq: eventSeq, running: false, starting: false, ready: false, processRunning: false, busy: false, state: "stopped", transcript: [], models: { availableModels: [], currentModelId: "" }, mcp: { status: "unchecked", configured: false, agentAcknowledged: null } });
+    if (!session) return Object.assign({}, ids, { seq: eventSeq, running: false, starting: false, ready: false, processRunning: false, busy: false, state: "stopped", transcript: [], models: { availableModels: [], currentModelId: "" }, effort: null, mcp: { status: "unchecked", configured: false, agentAcknowledged: null } });
     const processRunning = Boolean(session.client && session.client.started);
     const ready = session.ready && processRunning && !session.stopped;
     const out = Object.assign({}, ids, {
@@ -647,6 +647,7 @@ function createAcpHost(host, dependencies) {
       agentName: session.agentName,
       error: session.error,
       models: session.client ? session.client.models : { availableModels: [], currentModelId: "" },
+      effort: session.client ? session.client.effort || null : null,
       commands: Array.isArray(session.agentCommands) ? session.agentCommands.slice() : [],
       mcp: Object.assign({}, session.mcp),
       authRequired: Boolean(session.authRequired),
@@ -669,17 +670,17 @@ function createAcpHost(host, dependencies) {
 
   // Every live session refreshes the saved model list, so the pickers on Home
   // and in a fresh chat show what the agent really offers.
-  function rememberModels(harnessId, models) {
+  function rememberModels(harnessId, models, effort) {
     if (!models || !Array.isArray(models.availableModels) || !models.availableModels.length) return;
     try {
-      setAcpModelCache(host.dataRoot, harnessId, { availableModels: models.availableModels, currentModelId: models.currentModelId || "" });
+      setAcpModelCache(host.dataRoot, harnessId, { availableModels: models.availableModels, currentModelId: models.currentModelId || "", effort: effort || null });
     } catch {
       /* store busy; the next session retries */
     }
   }
 
   function finishReady(session, mcp) {
-    if (session.client) rememberModels(session.harnessId, session.client.models);
+    if (session.client) rememberModels(session.harnessId, session.client.models, session.client.effort);
     session.authRequired = false;
     session.authMethods = [];
     session.pendingNew = null;
@@ -1525,6 +1526,11 @@ function createAcpHost(host, dependencies) {
       await checkMcp(session, session.turnController.signal);
       assertActiveSent(session);
       if (body.modelId !== undefined && body.modelId !== null && String(body.modelId)) await session.client.setModel(String(body.modelId), session.sessionId);
+      if (body.effort !== undefined && body.effort !== null && String(body.effort) && typeof session.client.setEffort === "function" && session.client.effort) {
+        // Effort is best effort: an agent without the option, or one that
+        // turns the value down, must not stop the send.
+        await session.client.setEffort(String(body.effort), session.sessionId).catch(() => {});
+      }
       assertActiveSent(session);
       if (cancelVersion !== session.cancelVersion) throw new Error("ACP turn cancelled.");
       // A stream can die inside the agent while the turn still reports
@@ -1877,8 +1883,8 @@ function createAcpHost(host, dependencies) {
         }
         const caps = init && init.agentCapabilities && init.agentCapabilities.sessionCapabilities;
         if (caps && caps.close && client.sessionId) await client.request("session/close", { sessionId: client.sessionId }, 5000).catch(() => {});
-        const result = { availableModels: client.models.availableModels, currentModelId: client.models.currentModelId || "" };
-        rememberModels(harnessId, result);
+        const result = { availableModels: client.models.availableModels, currentModelId: client.models.currentModelId || "", effort: client.effort || null };
+        rememberModels(harnessId, result, client.effort);
         return Object.assign({ source: "agent" }, result);
       } catch (error) {
         const tail = stderr.trim().split(/\r?\n/).pop();

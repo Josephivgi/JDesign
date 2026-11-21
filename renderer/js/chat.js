@@ -7,7 +7,7 @@ import { getSession, setSession, scopeKey, displayItems, resync } from "./sessio
 import { esc, icon, toast, showMenu, confirmDialog, promptDialog, openDialog, autosize, timeAgo, errorText, formatDuration } from "./ui.js";
 import { renderMarkdown } from "./markdown.js";
 import { buildPrompt } from "./prompt.js";
-import { agentAvatar, agentName, openAgentMenu, loadModels, modelPickerButton, openModelMenu } from "./agent-ui.js";
+import { agentAvatar, agentName, loadModels, agentModelPickerButton, openAgentModelMenu, effortPref } from "./agent-ui.js";
 import { mediaChip, pickMedia, wireDrop, importPaths } from "./media.js";
 import { attachSlashMenu, fetchSlashCommands, workflowFor, workflowByName, followUps } from "./slash.js";
 import { attachMic, speak, stopSpeaking, isSpeaking, onSpeakingChange } from "./voice.js";
@@ -142,7 +142,7 @@ export function mountChat(root, ctx) {
     '<button type="button" class="icon-btn icon-btn-sm" data-slash-open title="Workflows (type /)" aria-label="Workflows">' + icon("slash") + "</button>" +
     '<button type="button" class="icon-btn icon-btn-sm mic-btn" data-mic aria-label="Talk instead of typing"></button>' +
     '<span data-mode-slot></span>' +
-    '<span data-agent-slot></span><span data-model-slot></span>' +
+    '<span data-agent-slot></span>' +
     '<span class="grow"></span>' +
     '<span class="agent-status" data-status></span>' +
     '<button class="send-btn" data-send title="Send">' + icon("arrowUp") + "</button>" +
@@ -418,6 +418,8 @@ export function mountChat(root, ctx) {
     const startChatId = startChat ? startChat.id : "";
     const harnessId = st.harnessId;
     const modelId = st.modelId;
+    // Thinking effort the send applies, when the agent offers the option.
+    const effort = effortPref();
     // Only a pick the person made is told to the model.
     const mode = steer ? steer.mode : st.modePicked ? st.mode : "";
     const openDrawingId = steer ? steer.openDrawingId : ctx.openDrawingId ? ctx.openDrawingId() : "";
@@ -452,7 +454,7 @@ export function mountChat(root, ctx) {
       if (!live) throw new Error((here() && st.connectError) || (getSession(sc) || {}).error || "The agent could not start.");
       if (live.authRequired) throw new Error(agentName(sc.harnessId) + " needs you to sign in first.");
       const at = st.pendingAt;
-      const payload = () => Object.assign({}, sc, { text: body, displayText: text, modelId: modelId || undefined, at });
+      const payload = () => Object.assign({}, sc, { text: body, displayText: text, modelId: modelId || undefined, effort: effort || undefined, at });
       // Only the attachments that go out with this message leave the
       // composer; ones added while the agent started stay for the next one.
       if (here()) {
@@ -822,10 +824,7 @@ export function mountChat(root, ctx) {
   };
 
   const paintComposer = () => {
-    const h = harnessById(st.harnessId);
-    $("[data-agent-slot]").innerHTML =
-      '<button class="picker" data-agent title="' + esc(h ? "Agent: " + h.name : "Choose agent") + '" aria-label="' + esc(h ? "Agent: " + h.name : "Choose agent") + '">' + agentAvatar(st.harnessId) + '<span class="ellipsis">' + esc(h ? h.name : "Choose agent") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
-    $("[data-model-slot]").innerHTML = st.harnessId ? modelPickerButton(st.harnessId, st.modelId, session()) : "";
+    $("[data-agent-slot]").innerHTML = agentModelPickerButton(st.harnessId, st.modelId, session());
     $("[data-mode-slot]").innerHTML =
       '<button type="button" class="picker" data-mode title="What this ask is about" aria-label="What this ask is about">' +
       icon(st.mode === "draw" ? "pencil" : "film", "i-sm") + "<span>" + (!st.modePicked ? "Auto" : st.mode === "draw" ? "Draw" : "Video") + "</span>" + icon("chevDown", "i-sm chev") + "</button>";
@@ -1183,23 +1182,26 @@ export function mountChat(root, ctx) {
       return;
     }
     if (t.closest("[data-agent]")) {
-      openAgentMenu(t.closest("[data-agent]"), st.harnessId, (id) => {
-        if (id === st.harnessId) return;
-        const prev = st.harnessId;
-        st.harnessId = id;
-        st.modelId = "";
-        st.connectError = "";
-        paintAll();
-        if (st.chat && st.chat.harnessId && st.chat.harnessId !== id) toast("Your next message hands this chat to " + agentName(id) + " with its history.");
-        if (prev !== id) void seedModels();
-      }, { above: true });
-      return;
-    }
-    if (t.closest("[data-model]")) {
-      openModelMenu(t.closest("[data-model]"), st.harnessId, st.modelId, session(), async (modelId) => {
-        st.modelId = modelId;
-        paintComposer();
-        if (st.chat) await api.editorChatUpdate({ id: st.chat.id, patch: { model: modelId }, light: true }).catch(() => {});
+      openAgentModelMenu(t.closest("[data-agent]"), st.harnessId, st.modelId, () => session(), {
+        onAgent: (id) => {
+          if (id === st.harnessId) return;
+          const prev = st.harnessId;
+          st.harnessId = id;
+          st.modelId = "";
+          st.connectError = "";
+          paintAll();
+          if (st.chat && st.chat.harnessId && st.chat.harnessId !== id) toast("Your next message hands this chat to " + agentName(id) + " with its history.");
+          if (prev !== id) void seedModels();
+        },
+        onModel: async (modelId) => {
+          st.modelId = modelId;
+          paintComposer();
+          if (st.chat) await api.editorChatUpdate({ id: st.chat.id, patch: { model: modelId }, light: true }).catch(() => {});
+        },
+        onEffort: (value) => {
+          void setPrefs({ effort: value });
+          paintComposer();
+        },
       }, { above: true });
     }
   });

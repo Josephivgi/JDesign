@@ -99,6 +99,7 @@ function attachAgentHub(options) {
     for (const item of list) if (!item.icon && icons[item.id]) item.icon = icons[item.id];
     return list;
   });
+  register("acp-registry-icons", () => require("../lib/acp-registry").cachedRegistryIcons(dataRoot));
   register("acp-session", (_event, payload) => acp.snapshot(payload || {}));
   register("acp-start", (_event, payload) => acp.start(payload));
   register("acp-models", (_event, payload) => acp.models(payload));
