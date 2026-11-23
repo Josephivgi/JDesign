@@ -1705,3 +1705,12 @@ html[data-density="compact"] .el-history-wrap > summary { min-height: 36px; }
 .artifact .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .artifact .art-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact .art-s { color: var(--text-3); font-size: var(--fs-xs); }
+
+/* Home: Start new drawing is one compact row (icon, text, button) instead of
+   a tall centered card, so the drawings list and projects sit higher. */
+.draw-new { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "ic title btn" "ic text btn"; justify-items: start; text-align: left; column-gap: 14px; row-gap: 2px; padding: 14px 16px; }
+.draw-new-ic { grid-area: ic; align-self: center; }
+.draw-new strong { grid-area: title; align-self: end; }
+.draw-new p { grid-area: text; align-self: start; max-width: none; }
+.draw-new .btn { grid-area: btn; align-self: center; }
+@media (max-width: 760px) { .draw-new { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "ic title" "ic text" "btn btn"; } }
