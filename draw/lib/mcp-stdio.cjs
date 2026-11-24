@@ -102,6 +102,11 @@ process.stdin.on("data", (d) => {
   }
 });
 process.stdin.resume();
+// The agent that spawned this proxy is gone when its stdin closes: exit now
+// instead of idling as an orphan process.
+process.stdin.on("end", () => process.exit(0));
+process.stdin.on("error", () => process.exit(0));
+process.stdout.on("error", () => process.exit(0));
 
 process.on("uncaughtException", (error) => {
   try { out(rpcError(null, "Draw proxy error: " + (error && error.message ? error.message : String(error)))); } catch {}

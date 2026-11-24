@@ -1492,6 +1492,9 @@ async function init(opts) {
 
 function shutdown() {
   for (const s of sessions.values()) s.stop();
+  // A reviewer mid-round would otherwise outlive the app until its own turn ended.
+  for (const rv of reviewers.values()) { try { rv.stop(); } catch {} }
+  reviewers.clear();
   try { store && store.closeAll(); } catch {}
   try { mcp && mcp.close(); } catch {}
 }

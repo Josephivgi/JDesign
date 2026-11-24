@@ -55,6 +55,15 @@ function mergePersistRows(seedRows, evictedRows, liveRows) {
 
 function createAcpHost(host, dependencies) {
   const sessions = new Map();
+  // An agent process that has sat idle this long is stopped to free its RAM.
+  // The chat keeps its transcript and saved session id, and the renderer's
+  // connect() restarts and resumes it on the next message. 0 turns it off.
+  const IDLE_REAP_MS = (() => {
+    const raw = process.env.JDESIGN_AGENT_IDLE_MS;
+    const n = raw === undefined || raw === "" ? 10 * 60_000 : Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 10 * 60_000;
+  })();
+  let reapTimer = null;
   // Commands each agent advertised in its last session, so the / menu can
   // list them before a new session is up.
   const agentCommandCache = new Map();
@@ -688,6 +697,7 @@ function createAcpHost(host, dependencies) {
     session.mcp.transport = (mcp && mcp.type) || "stdio";
     session.ready = true;
     session.starting = false;
+    session.lastActiveAt = Date.now();
     push(session, { role: "system", text: session.agentName + " session ready. JV MCP preflight passed; MCP configuration supplied. Agent tool connection is not reported by ACP." });
     emitState(session);
     return snapshot(session);
@@ -1480,6 +1490,7 @@ function createAcpHost(host, dependencies) {
     // history read like the chat, not the wrapper.
     const displayText = String(body.displayText || "").trim() || text;
     session.busy = true;
+    session.lastActiveAt = Date.now();
     session.error = "";
     const cancelVersion = session.cancelVersion;
     session.turnController = new AbortController();
@@ -1703,6 +1714,7 @@ function createAcpHost(host, dependencies) {
     } finally {
       if (holdingAwake && typeof host.powerRelease === "function") host.powerRelease();
       session.busy = false;
+      session.lastActiveAt = Date.now();
       session.turnController = null;
       settleOrphanTools(session);
       // Report the settled turn even when it tore the session down. Skipping
@@ -1827,7 +1839,39 @@ function createAcpHost(host, dependencies) {
     });
   }
 
+  // Stops ready sessions that nobody has used for IDLE_REAP_MS. Never touches
+  // a busy, starting or approval-waiting session. The session entry stays (as
+  // stopped) so its transcript survives and the next start() resumes it.
+  function reapIdle(now, limitMs) {
+    const limit = limitMs === undefined ? IDLE_REAP_MS : limitMs;
+    if (!limit) return 0;
+    const at = Number.isFinite(now) ? now : Date.now();
+    let reaped = 0;
+    for (const session of Array.from(sessions.values())) {
+      if (!session.ready || session.busy || session.starting || session.stopped || !session.client) continue;
+      if (session.permissions && session.permissions.size) continue;
+      if (at - (session.lastActiveAt || 0) < limit) continue;
+      try {
+        dispose(session);
+        emitState(session);
+        reaped++;
+      } catch {
+        /* already gone */
+      }
+    }
+    return reaped;
+  }
+
+  if (IDLE_REAP_MS) {
+    reapTimer = setInterval(() => reapIdle(), Math.max(1000, Math.min(60_000, Math.floor(IDLE_REAP_MS / 2))));
+    if (reapTimer.unref) reapTimer.unref();
+  }
+
   function stopAll() {
+    if (reapTimer) {
+      clearInterval(reapTimer);
+      reapTimer = null;
+    }
     for (const session of sessions.values()) {
       try {
         dispose(session);
@@ -1919,7 +1963,7 @@ function createAcpHost(host, dependencies) {
     }
   }
 
-  return { list, models, slashCommands, start, authenticate, prompt, cancel, stop, stopHarness, handoff, stopAll, snapshot, answerPermission, recordDrawArtifact };
+  return { list, models, slashCommands, start, authenticate, prompt, cancel, stop, stopHarness, handoff, stopAll, reapIdle, snapshot, answerPermission, recordDrawArtifact };
 }
 
 module.exports = { createAcpHost, mergePersistRows, legacyMessageRows };
