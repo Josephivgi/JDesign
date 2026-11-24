@@ -664,3 +664,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   .size-card .shape-box, .art-card .thumb, .lrow, .panel-resize,
   .lc-title .lc-chev, .name-input { transition: none; }
 }
+
+/* Assistant composer: Agent, Model and Effort show their value on the button,
+   so the small captions above them are dropped (kept for screen readers). */
+.composer .sel-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.composer .selectors { padding-bottom: var(--s-2); }
