@@ -273,6 +273,11 @@ contextBridge.exposeInMainWorld("cutline", {
     ipcRenderer.on("acp-registry-progress", listen);
     return () => ipcRenderer.removeListener("acp-registry-progress", listen);
   },
+  onAcpModelsChanged: (handler) => {
+    const listen = (_event, message) => handler(message);
+    ipcRenderer.on("acp-models-changed", listen);
+    return () => ipcRenderer.removeListener("acp-models-changed", listen);
+  },
   onAcpEvent: (handler) => {
     const listen = (_event, message) => handler(message);
     ipcRenderer.on("acp-event", listen);

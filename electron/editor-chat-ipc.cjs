@@ -96,7 +96,9 @@ function attachEditorChatIpc(host) {
   registerHandle("acp-models-cache-set", async (_event, payload) => {
     const body = payload || {};
     if (!body.harnessId) throw new Error("harnessId is required.");
-    setAcpModelCache(dataRoot(), body.harnessId, body.models);
+    // Stamped so the background model check knows this list is fresh.
+    const models = body.models && typeof body.models === "object" && !Array.isArray(body.models) ? Object.assign({}, body.models, { updatedAt: Date.now() }) : body.models;
+    setAcpModelCache(dataRoot(), body.harnessId, models);
     return { ok: true };
   });
 }

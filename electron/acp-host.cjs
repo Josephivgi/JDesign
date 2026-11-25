@@ -64,6 +64,16 @@ function createAcpHost(host, dependencies) {
     return Number.isFinite(n) && n >= 0 ? n : 10 * 60_000;
   })();
   let reapTimer = null;
+  // Saved model lists older than this are read again from the agent in the
+  // background, so models an agent adds later (Devin's SWE-2.1) show up
+  // without a restart. JDESIGN_MODEL_REFRESH_MS overrides it; 0 turns it off.
+  const MODEL_REFRESH_MS = (() => {
+    const raw = process.env.JDESIGN_MODEL_REFRESH_MS;
+    const n = raw === undefined || raw === "" ? 30 * 60_000 : Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 30 * 60_000;
+  })();
+  let modelRefreshTimer = null;
+  let modelRefreshFirst = null;
   // Commands each agent advertised in its last session, so the / menu can
   // list them before a new session is up.
   const agentCommandCache = new Map();
@@ -677,15 +687,33 @@ function createAcpHost(host, dependencies) {
     return /auth|credential|sign ?in|log ?in/i.test(String((error && error.message) || ""));
   }
 
-  // Every live session refreshes the saved model list, so the pickers on Home
-  // and in a fresh chat show what the agent really offers.
+  // Every live session and every background check refreshes the saved model
+  // list, so the pickers on Home and in a fresh chat show what the agent
+  // really offers. Models that were not in the saved list are reported to the
+  // windows (acp-models-changed) so they can repaint and say what is new.
   function rememberModels(harnessId, models, effort) {
-    if (!models || !Array.isArray(models.availableModels) || !models.availableModels.length) return;
+    if (!models || !Array.isArray(models.availableModels) || !models.availableModels.length) return [];
+    let prev = null;
     try {
-      setAcpModelCache(host.dataRoot, harnessId, { availableModels: models.availableModels, currentModelId: models.currentModelId || "", effort: effort || null });
+      prev = getAcpModelCache(host.dataRoot)[harnessId] || null;
+    } catch {
+      prev = null;
+    }
+    const entry = { availableModels: models.availableModels, currentModelId: models.currentModelId || "", effort: effort || null, updatedAt: Date.now() };
+    try {
+      setAcpModelCache(host.dataRoot, harnessId, entry);
     } catch {
       /* store busy; the next session retries */
     }
+    const before = prev && Array.isArray(prev.availableModels) ? new Set(prev.availableModels.map((m) => m && m.modelId)) : null;
+    const added = before && before.size ? entry.availableModels.filter((m) => !before.has(m.modelId)) : [];
+    const removed = before && before.size ? before.size + added.length - entry.availableModels.length : 0;
+    if (!before || added.length || removed) {
+      for (const win of host.windows()) {
+        if (!win.isDestroyed()) win.webContents.send("acp-models-changed", { harnessId, models: entry, added });
+      }
+    }
+    return added;
   }
 
   function finishReady(session, mcp) {
@@ -1872,6 +1900,14 @@ function createAcpHost(host, dependencies) {
       clearInterval(reapTimer);
       reapTimer = null;
     }
+    if (modelRefreshTimer) {
+      clearInterval(modelRefreshTimer);
+      modelRefreshTimer = null;
+    }
+    if (modelRefreshFirst) {
+      clearTimeout(modelRefreshFirst);
+      modelRefreshFirst = null;
+    }
     for (const session of sessions.values()) {
       try {
         dispose(session);
@@ -1898,7 +1934,9 @@ function createAcpHost(host, dependencies) {
       } catch {
         cached = null;
       }
-      if (cached && Array.isArray(cached.availableModels) && cached.availableModels.length) return Promise.resolve(Object.assign({ source: "cache" }, cached));
+      if (cached && Array.isArray(cached.availableModels) && cached.availableModels.length) {
+        return Promise.resolve(Object.assign({ source: "cache", stale: modelsStale(cached) }, cached));
+      }
     }
     if (probes.has(harnessId)) return probes.get(harnessId);
     const run = (async () => {
@@ -1942,6 +1980,55 @@ function createAcpHost(host, dependencies) {
     return run;
   }
 
+  function modelsStale(cached) {
+    const at = Number(cached && cached.updatedAt) || 0;
+    return !at || Date.now() - at >= (MODEL_REFRESH_MS || Infinity);
+  }
+
+  // Background check: every agent that is installed and has a saved list
+  // older than MODEL_REFRESH_MS is read again, one at a time. New models go
+  // out through rememberModels. Agents never used have no saved list and are
+  // left alone, so this never starts an agent the user has not picked.
+  let refreshingModels = false;
+  async function refreshStaleModels() {
+    if (refreshingModels) return [];
+    refreshingModels = true;
+    const checked = [];
+    try {
+      let cache = {};
+      try {
+        cache = getAcpModelCache(host.dataRoot) || {};
+      } catch {
+        return checked;
+      }
+      const installed = new Set(listAcpHarnesses({ appRoot: host.appRoot, dataRoot: host.dataRoot }).filter((h) => h.available).map((h) => h.id));
+      for (const harnessId of Object.keys(cache)) {
+        if (!installed.has(harnessId) || !modelsStale(cache[harnessId])) continue;
+        try {
+          const result = await models({ harnessId, refresh: true });
+          checked.push({ harnessId, count: result.availableModels.length });
+        } catch (error) {
+          checked.push({ harnessId, error: String((error && error.message) || error) });
+        }
+      }
+    } finally {
+      refreshingModels = false;
+    }
+    return checked;
+  }
+
+  if (MODEL_REFRESH_MS) {
+    // First pass a minute after launch, then on a timer. Each pass only reads
+    // the lists that went stale, so a short timer costs nothing extra.
+    modelRefreshFirst = setTimeout(() => {
+      modelRefreshFirst = null;
+      void refreshStaleModels();
+    }, Math.min(60_000, MODEL_REFRESH_MS));
+    if (modelRefreshFirst.unref) modelRefreshFirst.unref();
+    modelRefreshTimer = setInterval(() => void refreshStaleModels(), Math.max(10_000, Math.min(MODEL_REFRESH_MS, 10 * 60_000)));
+    if (modelRefreshTimer.unref) modelRefreshTimer.unref();
+  }
+
   function list(payload) {
     const ids = scope(payload);
     return listAcpHarnesses({ appRoot: host.appRoot, dataRoot: host.dataRoot }).map((item) => Object.assign(item, { session: snapshot(Object.assign({}, ids, { harnessId: item.id })) }));
@@ -1963,7 +2050,7 @@ function createAcpHost(host, dependencies) {
     }
   }
 
-  return { list, models, slashCommands, start, authenticate, prompt, cancel, stop, stopHarness, handoff, stopAll, reapIdle, snapshot, answerPermission, recordDrawArtifact };
+  return { list, models, refreshStaleModels, slashCommands, start, authenticate, prompt, cancel, stop, stopHarness, handoff, stopAll, reapIdle, snapshot, answerPermission, recordDrawArtifact };
 }
 
 module.exports = { createAcpHost, mergePersistRows, legacyMessageRows };

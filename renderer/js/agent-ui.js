@@ -1,7 +1,7 @@
 // Agent identity bits shared by Home, the chat, and the Agents page.
 
 import { api, store, on, emit, harnessById } from "./store.js";
-import { esc, icon, initials, showMenu, showPopover } from "./ui.js";
+import { esc, icon, initials, showMenu, showPopover, toast } from "./ui.js";
 
 // Marks that have a color of their own. The colors are the --brand-* tokens in
 // app.css; a mark that is not listed stays in the text color (OpenAI, Devin,
@@ -115,9 +115,11 @@ export function loadModels(harnessId, opts = {}) {
       const models = result && Array.isArray(result.availableModels) ? { availableModels: result.availableModels, currentModelId: result.currentModelId || "", effort: result.effort || null } : null;
       modelState.set(harnessId, { loading: false, error: models && models.availableModels.length ? "" : "This agent does not offer a model choice.", models });
       emit("models", { harnessId });
-      // A cached list paints at once; a fresh read from the agent follows so
-      // new models show up without a restart.
-      if (result && result.source === "cache" && !opts.refresh) setTimeout(() => void loadModels(harnessId, { refresh: true, quiet: true }), 0);
+      // A cached list paints at once; when it is old a fresh read from the
+      // agent follows. The app also re-reads old lists on a timer and pushes
+      // what changed (acp-models-changed below), so new models show up
+      // without a restart.
+      if (result && result.source === "cache" && result.stale && !opts.refresh) setTimeout(() => void loadModels(harnessId, { refresh: true, quiet: true }), 0);
       return models;
     },
     (error) => {
@@ -130,6 +132,27 @@ export function loadModels(harnessId, opts = {}) {
   modelState.set(harnessId, next);
   if (!opts.quiet) emit("models", { harnessId });
   return next.promise;
+}
+
+// The app re-read an agent's models (background check or a live session).
+// Repaint the pickers, and say when the agent added models.
+if (api && api.onAcpModelsChanged) {
+  api.onAcpModelsChanged((message) => {
+    const harnessId = message && message.harnessId;
+    const m = message && message.models;
+    if (!harnessId || !m || !Array.isArray(m.availableModels)) return;
+    const cur = modelState.get(harnessId);
+    if (!(cur && cur.loading)) {
+      modelState.set(harnessId, { loading: false, error: m.availableModels.length ? "" : "This agent does not offer a model choice.", models: { availableModels: m.availableModels, currentModelId: m.currentModelId || "", effort: m.effort || null } });
+    }
+    emit("models", { harnessId });
+    const added = Array.isArray(message.added) ? message.added : [];
+    if (!added.length) return;
+    const names = [...new Set(added.map((x) => String((x && (x.name || x.modelId)) || "")).filter(Boolean))];
+    const h = harnessById(harnessId);
+    const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? " and " + (names.length - 3) + " more" : "");
+    toast((h ? h.name : harnessId) + " has new " + (names.length === 1 ? "model" : "models") + ": " + shown, "info");
+  });
 }
 
 // Live session models win; otherwise the loaded list for the agent.
