@@ -132,7 +132,7 @@ class DrawingStore {
     const doc = entry ? JSON.stringify(entry.doc) : row.doc;
     const nid = G.uid("d");
     const now = Date.now();
-    this.db.prepare("INSERT INTO drawings (id, name, doc, thumb, created, updated) VALUES (?, ?, ?, ?, ?, ?)").run(nid, row.name + " copy", doc, row.thumb, now, now);
+    this.db.prepare("INSERT INTO drawings (id, name, doc, thumb, created, updated, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(nid, row.name + " copy", doc, row.thumb, now, now, row.project_id || "");
     return nid;
   }
 
