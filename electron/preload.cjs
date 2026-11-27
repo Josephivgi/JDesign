@@ -216,7 +216,10 @@ contextBridge.exposeInMainWorld("cutline", {
     if (r && r.ok) return r.value;
     throw new Error((r && r.error) || "Drawings could not be read.");
   }),
-  projectDrawings: (projectId) => ipcRenderer.invoke("drawings:for-project", projectId).then((r) => (r && r.ok ? r.value : [])),
+  projectDrawings: (projectId) => ipcRenderer.invoke("drawings:for-project", projectId).then((r) => {
+    if (r && r.ok) return r.value;
+    throw new Error((r && r.error) || "The project's drawings could not be read.");
+  }),
   jdrawDrawingCreate: (opts) => ipcRenderer.invoke("drawing:new", opts).then((r) => {
     if (r && r.ok) return r.value;
     throw new Error((r && r.error) || "The drawing could not be created.");

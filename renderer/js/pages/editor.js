@@ -146,7 +146,14 @@ export function renderEditor(main, projectId, opts) {
   // ---------- artifact tabs: Video plus one tab per drawing ----------
   const hasVideoContent = () => !!(st.project && ((st.project.assets || []).length || projectRenders(st.project).length));
   const loadDrawings = async () => {
-    st.drawings = (await api.projectDrawings(projectId).catch(() => [])) || [];
+    try {
+      st.drawings = (await api.projectDrawings(projectId)) || [];
+      st.drawingsReadFailed = false;
+    } catch (error) {
+      st.drawings = st.drawings || [];
+      if (!st.drawingsReadFailed) toast(errorText(error), true);
+      st.drawingsReadFailed = true;
+    }
     st.canUndoDraw = await api.jdrawCanUndoTurn(projectId).catch(() => false);
   };
   const paintArtTabs = () => {
