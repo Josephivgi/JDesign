@@ -850,6 +850,7 @@
         this.assistant.renderChips();
         this.scheduleThumb();
       }));
+      this.offs.push(jdraw.on("drawings:changed", () => { void this.syncMeta(); }));
       this.offs.push(jdraw.on("agent:event", (ev) => { if (ev.docId === this.id) this.assistant.onEvent(ev); }));
       this.offs.push(jdraw.on("brush:set", (m) => {
         if (m.docId !== this.id) return;
