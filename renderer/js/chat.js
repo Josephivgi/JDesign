@@ -1055,7 +1055,8 @@ export function mountChat(root, ctx) {
     }
     const artifact = t.closest("[data-artifact]");
     if (artifact) {
-      if (ctx.onOpenDrawing) ctx.onOpenDrawing(artifact.dataset.artifact);
+      const exists = ((ctx.drawings && ctx.drawings()) || []).some((d) => d.id === artifact.dataset.artifact);
+      if (exists && ctx.onOpenDrawing) ctx.onOpenDrawing(artifact.dataset.artifact);
       return;
     }
     const perm = t.closest("[data-perm]");
