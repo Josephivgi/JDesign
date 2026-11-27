@@ -409,7 +409,7 @@ async function runBridge(command, args) {
 async function boot() {
   const root = document.getElementById("app");
   if (!api) {
-    root.innerHTML = '<div class="empty" style="grid-column:1/-1;margin:auto"><h3>JV</h3><p>Start this app with npm start.</p></div>';
+    root.innerHTML = '<div class="empty" style="grid-column:1/-1;margin:auto"><h3>JDesign</h3><p>Start this app with npm start.</p></div>';
     return;
   }
   try {
@@ -421,7 +421,7 @@ async function boot() {
   try {
     await refreshSnapshot();
   } catch (error) {
-    root.innerHTML = '<div class="empty" style="grid-column:1/-1;margin:auto">' + icon("alert", "i-xl") + "<h3>JV could not open its library</h3><p>" + esc((error && error.message) || error) + "</p></div>";
+    root.innerHTML = '<div class="empty" style="grid-column:1/-1;margin:auto">' + icon("alert", "i-xl") + "<h3>JDesign could not open its library</h3><p>" + esc((error && error.message) || error) + "</p></div>";
     return;
   }
   wireSessions();
@@ -447,18 +447,18 @@ window.addEventListener("error", (event) => {
 });
 
 on("navigate", ({ page, params }) => navigate(page, params));
-if (api.onStudioChanged) api.onStudioChanged((message) => {
+if (api && api.onStudioChanged) api.onStudioChanged((message) => {
   if (message && message.library) refreshSnapshot().catch(() => {});
   if (message && message.projects) refreshProjects().catch(() => {});
 });
 // Drawings live inside projects now: Draw reports selects, new artifacts and
 // list changes on jdraw:event, and the project editor reacts to them.
-if (api.onDrawEvent) api.onDrawEvent((message) => {
+if (api && api.onDrawEvent) api.onDrawEvent((message) => {
   const msg = message || {};
   if (msg.kind === "draw:list-changed") store.drawingsAll = null;
   emit("draw-event", msg);
   if (msg.kind === "draw:open-chat" && msg.projectId) navigate("editor", { projectId: msg.projectId, drawingId: msg.drawingId });
   if (msg.kind === "draw:select" && msg.projectId && store.route.projectId !== msg.projectId) navigate("editor", { projectId: msg.projectId, drawingId: msg.drawingId });
 });
-if (api.onStudioTheme) api.onStudioTheme(({ mode }) => { if (["light", "dark", "system"].includes(mode)) setPrefs({ theme: mode }); });
+if (api && api.onStudioTheme) api.onStudioTheme(({ mode }) => { if (["light", "dark", "system"].includes(mode)) setPrefs({ theme: mode }); });
 boot();
