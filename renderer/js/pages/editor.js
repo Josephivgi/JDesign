@@ -1134,7 +1134,7 @@ export function renderEditor(main, projectId, opts) {
       if (msg.kind === "draw:select" && msg.drawingId && (!msg.projectId || msg.projectId === projectId)) {
         void loadDrawings().then(() => { if (st.drawings.some((d) => d.id === msg.drawingId)) setTab(msg.drawingId); });
       } else if (msg.kind === "draw:artifact" || msg.kind === "draw:list-changed") {
-        void loadDrawings().then(() => paintArtTabs());
+        void loadDrawings().then(() => { paintArtTabs(); if (chat) chat.refresh(); });
       }
     }),
     on("workspace-changed", async (info) => {

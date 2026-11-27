@@ -700,6 +700,14 @@ export function mountChat(root, ctx) {
       // A drawing the agent made or changed: thumb plus name, opens its tab.
       const d = ((ctx.drawings && ctx.drawings()) || []).find((x) => x.id === item.drawingId) || {};
       const thumb = d.thumb ? '<img src="' + esc(d.thumb) + '" alt="" loading="lazy" draggable="false">' : '<span class="art-ico">' + icon("pencil") + "</span>";
+      if (!d.id) {
+        return (
+          '<div class="artifact is-gone" title="This drawing was deleted">' +
+          thumb +
+          '<span class="grow"><span class="art-t">' + esc(item.drawingName) + '</span><span class="art-s">Deleted drawing</span></span>' +
+          "</div>"
+        );
+      }
       return (
         '<button type="button" class="artifact" data-artifact="' + esc(item.drawingId) + '" title="Open ' + esc(item.drawingName) + '">' +
         thumb +
