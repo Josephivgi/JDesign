@@ -1,5 +1,5 @@
 import { api, store, on, emit, setPrefs, refreshProjects, refreshSnapshot, mediaUrlFor, thumbFor } from "../store.js";
-import { esc, icon, toast, showMenu, confirmDialog, formatTimecode, timeAgo, errorText, kindIcon, modalOpen } from "../ui.js";
+import { esc, icon, toast, showMenu, confirmDialog, promptDialog, formatTimecode, timeAgo, errorText, kindIcon, modalOpen } from "../ui.js";
 import { thumbMarkup, mediaMeta, pickMedia, wireDrop, importPaths, backfillPosters, displayName } from "../media.js";
 import { mountChat } from "../chat.js";
 import { editDesign } from "../gallery.js";
@@ -157,9 +157,11 @@ export function renderEditor(main, projectId, opts) {
     for (const d of st.drawings) tabs.push('<button class="art-tab' + (st.tab === d.id ? " is-on" : "") + '" data-art="' + esc(d.id) + '" title="' + esc(d.name) + '">' + icon("pencil", "i-sm") + '<span class="ellipsis">' + esc(d.name) + "</span></button>");
     tabs.push('<button class="art-tab" data-art-new title="Add a drawing or a video to this project (Ctrl D adds a drawing)">' + icon("plus", "i-sm") + "<span>New</span></button>");
     if (st.tab !== "video") {
+      const drawing = st.drawings.find((d) => d.id === st.tab);
       tabs.push('<span class="grow"></span>');
       tabs.push('<button class="btn btn-sm" data-use-video title="Add this drawing to the project footage">' + icon("film", "i-sm") + "<span>Use in video</span></button>");
       if (st.canUndoDraw) tabs.push('<button class="btn btn-sm" data-undo-draw title="Undo the changes the agent made to project drawings">' + icon("undo", "i-sm") + "<span>Undo agent changes</span></button>");
+      if (drawing) tabs.push('<button class="icon-btn icon-btn-sm" data-drawing-more title="Drawing options" aria-label="Options for ' + esc(drawing.name) + '">' + icon("more") + "</button>");
     }
     bar.innerHTML = tabs.join("");
   };
@@ -213,6 +215,56 @@ export function renderEditor(main, projectId, opts) {
     await loadDrawings();
     paintArtTabs();
   };
+  const currentDrawing = () => st.drawings.find((d) => d.id === st.tab) || null;
+  const renameDrawing = async (target) => {
+    const drawing = target || currentDrawing();
+    if (!drawing) return;
+    const name = await promptDialog({ title: "Rename drawing", label: "Drawing name", value: drawing.name, confirm: "Rename" });
+    if (name == null) return;
+    const renamed = await api.jdrawDrawingRename(drawing.id, name).catch((error) => { toast(errorText(error), true); return null; });
+    if (renamed == null) return;
+    await loadDrawings();
+    paintArtTabs();
+    toast("Drawing renamed");
+  };
+  const duplicateDrawing = async (target) => {
+    const drawing = target || currentDrawing();
+    if (!drawing) return;
+    const copyId = await api.jdrawDrawingDuplicate(drawing.id).catch((error) => { toast(errorText(error), true); return null; });
+    if (!copyId) return;
+    await loadDrawings();
+    setTab(copyId);
+    toast("Drawing duplicated");
+  };
+  const deleteDrawing = async (target) => {
+    const drawing = target || currentDrawing();
+    if (!drawing) return;
+    const ok = await confirmDialog({ title: "Delete this drawing?", body: '"' + drawing.name + '" and its chat are removed for good.', confirm: "Delete", danger: true });
+    if (!ok) return;
+    const before = st.drawings.slice();
+    const index = before.findIndex((d) => d.id === drawing.id);
+    const removed = await api.jdrawDrawingRemove(drawing.id).catch((error) => { toast(errorText(error), true); return false; });
+    if (!removed) return;
+    await loadDrawings();
+    if (drawing.id === st.tab) {
+      const rest = before.filter((d) => d.id !== drawing.id);
+      const next = rest[Math.min(Math.max(index, 0), Math.max(rest.length - 1, 0))];
+      setTab(next ? next.id : "video");
+    } else {
+      paintArtTabs();
+    }
+    toast("Drawing deleted");
+  };
+  const drawingMenu = (anchor, target) => {
+    const drawing = target || currentDrawing();
+    if (!drawing) return;
+    showMenu(anchor, [
+      { label: "Rename", icon: "pencil", onSelect: () => void renameDrawing(drawing) },
+      { label: "Duplicate", icon: "copy", onSelect: () => void duplicateDrawing(drawing) },
+      "sep",
+      { label: "Delete", icon: "trash", danger: true, onSelect: () => void deleteDrawing(drawing) },
+    ], { align: "end" });
+  };
   const syncOverlay = async () => {
     const want = st.tab !== "video" && !!document.querySelector(".dialog, .menu");
     if (want === frozen) return;
@@ -233,6 +285,15 @@ export function renderEditor(main, projectId, opts) {
   const overlayWatch = new MutationObserver(() => { if (st.tab !== "video") void syncOverlay(); });
   overlayWatch.observe(document.body, { childList: true, subtree: true });
 
+  main.addEventListener("contextmenu", (event) => {
+    const tab = event.target.closest("[data-art]");
+    if (!tab || tab.dataset.art === "video") return;
+    const drawing = st.drawings.find((d) => d.id === tab.dataset.art);
+    if (!drawing) return;
+    event.preventDefault();
+    drawingMenu(tab, drawing);
+  });
+
   main.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-art]");
     if (tab) {
@@ -245,6 +306,10 @@ export function renderEditor(main, projectId, opts) {
         { label: "New drawing", sub: "A blank drawing in this project", onSelect: () => { void newDrawing(); } },
         { label: "Video", sub: "Show this project's video", onSelect: () => { st.videoOn = true; setTab("video"); } },
       ], { width: 240 });
+      return;
+    }
+    if (event.target.closest("[data-drawing-more]")) {
+      drawingMenu(event.target.closest("[data-drawing-more]"));
       return;
     }
     if (event.target.closest("[data-use-video]")) {
@@ -1069,7 +1134,7 @@ export function renderEditor(main, projectId, opts) {
       if (msg.kind === "draw:select" && msg.drawingId && (!msg.projectId || msg.projectId === projectId)) {
         void loadDrawings().then(() => { if (st.drawings.some((d) => d.id === msg.drawingId)) setTab(msg.drawingId); });
       } else if (msg.kind === "draw:artifact" || msg.kind === "draw:list-changed") {
-        void loadDrawings().then(() => paintArtTabs());
+        void loadDrawings().then(() => { paintArtTabs(); if (chat) chat.refresh(); });
       }
     }),
     on("workspace-changed", async (info) => {

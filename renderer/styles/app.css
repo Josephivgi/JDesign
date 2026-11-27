@@ -1562,6 +1562,8 @@ html[data-density="compact"] .el-history-wrap > summary { min-height: 36px; }
 /* A drawing the agent made or changed, as a card in the project chat */
 .artifact { display: flex; align-items: center; gap: 10px; width: 100%; margin: 4px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-1); color: var(--text); font: var(--fs-sm)/1.3 var(--font); text-align: left; cursor: pointer; }
 .artifact:hover { background: var(--bg-2); }
+.artifact.is-gone { cursor: default; color: var(--text-2); }
+.artifact.is-gone:hover { background: var(--bg-1); }
 .artifact img { width: 56px; height: 36px; object-fit: cover; border-radius: var(--r-sm); border: 1px solid var(--line); flex-shrink: 0; }
 .artifact .art-ico { display: flex; align-items: center; justify-content: center; width: 56px; height: 36px; border-radius: var(--r-sm); border: 1px solid var(--line); color: var(--text-3); flex-shrink: 0; }
 .artifact .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
