@@ -28,7 +28,3 @@ Rebuild and reinstall AppX so Start menu Cutline matches source:
 12. Styles apply. Catalog items still toast "Styles coming soon".
 13. Undo the last studio apply.
 14. Export the current edit to Finished videos from Edit videos, not only the Finished page.
-
-## Library
-
-15. Rename videos, images, and audio in place.
