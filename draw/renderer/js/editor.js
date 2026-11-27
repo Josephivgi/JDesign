@@ -947,6 +947,16 @@
       ], { align: "right" });
     }
 
+    async syncMeta() {
+      const rows = await jdraw.call("drawings:list").catch(() => []);
+      const row = (rows || []).find((d) => d.id === this.id);
+      if (!row) return this.meta.name;
+      this.meta = Object.assign({}, this.meta, row);
+      const input = this.root.querySelector(".name-input");
+      if (input && document.activeElement !== input) input.value = this.meta.name;
+      return this.meta.name;
+    }
+
     async saveFile(name, url, ext) {
       const file = await jdraw.call("export:save", name, url, ext);
       if (file) toast("Exported", { action: { label: "Show in folder", onClick: () => jdraw.call("export:reveal", file) } });
@@ -958,7 +968,7 @@
     }
 
     async exportSvg() {
-      try { return await this.saveFile(this.meta.name, this.svgUrl(JSvg.toSvg(this.doc)), "svg"); }
+      try { return await this.saveFile(await this.syncMeta(), this.svgUrl(JSvg.toSvg(this.doc)), "svg"); }
       catch (err) { toast(err.message, { problem: true }); return null; }
     }
 
@@ -968,17 +978,17 @@
       const b = G.unionBox(items.map(G.bounds));
       const crop = { x: Math.floor(b.x), y: Math.floor(b.y), w: Math.ceil(b.w) + 1, h: Math.ceil(b.h) + 1 };
       try {
-        if (kind === "svg") return await this.saveFile(this.meta.name + " selection", this.svgUrl(JSvg.toSvg(this.doc, { ids: this.selection, crop, transparent: true })), "svg");
+        if (kind === "svg") return await this.saveFile((await this.syncMeta()) + " selection", this.svgUrl(JSvg.toSvg(this.doc, { ids: this.selection, crop, transparent: true })), "svg");
         const scale = Math.min(2, 16384 / Math.max(crop.w, crop.h));
         const c = await JRender.renderToCanvas(this.doc, { ids: this.selection, transparent: true, crop, scale });
-        return await this.saveFile(this.meta.name + " selection", c.toDataURL("image/png"), "png");
+        return await this.saveFile((await this.syncMeta()) + " selection", c.toDataURL("image/png"), "png");
       } catch (err) { toast(err.message, { problem: true }); return null; }
     }
 
     async addToVideo() {
       try {
         const c = await JRender.renderToCanvas(this.doc, { scale: 1, transparent: false });
-        const r = await jdraw.call("studio:to-video-library", this.meta.name, c.toDataURL("image/png"));
+        const r = await jdraw.call("studio:to-video-library", await this.syncMeta(), c.toDataURL("image/png"));
         if (r.added) toast("Added to the video library", { action: { label: "Open Video", onClick: () => jdraw.call("studio:switch", "video") } });
         else toast("Not added: " + r.reason, { problem: true });
       } catch (err) { toast(err.message, { problem: true }); }
@@ -989,7 +999,7 @@
         const scale = Math.min(o.scale, 16384 / Math.max(this.doc.width, this.doc.height));
         const c = await JRender.renderToCanvas(this.doc, { scale, transparent: o.transparent });
         const url = o.jpg ? c.toDataURL("image/jpeg", 0.92) : c.toDataURL("image/png");
-        const file = await jdraw.call("export:save", this.meta.name, url, o.jpg ? "jpg" : "png");
+        const file = await jdraw.call("export:save", await this.syncMeta(), url, o.jpg ? "jpg" : "png");
         if (file) toast("Exported", { action: { label: "Show in folder", onClick: () => jdraw.call("export:reveal", file) } });
         return file;
       } catch (err) { toast(err.message, { problem: true }); return null; }
