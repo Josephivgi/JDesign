@@ -3,6 +3,11 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 let captureSetupStatusInflight = null;
 let listCaptureSourcesInflight = null;
 
+const drawValue = (promise, fallback) => promise.then((r) => {
+  if (r && r.ok) return r.value;
+  throw new Error((r && r.error) || fallback);
+});
+
 contextBridge.exposeInMainWorld("cutline", {
   snapshot: () => ipcRenderer.invoke("snapshot"),
   bundledSkills: () => ipcRenderer.invoke("bundled-skills"),
@@ -215,6 +220,9 @@ contextBridge.exposeInMainWorld("cutline", {
   jdrawAllDrawings: () => ipcRenderer.invoke("drawings:list").then((r) => (r && r.ok ? r.value : [])),
   projectDrawings: (projectId) => ipcRenderer.invoke("drawings:for-project", projectId).then((r) => (r && r.ok ? r.value : [])),
   jdrawDrawingCreate: (opts) => ipcRenderer.invoke("drawing:new", opts).then((r) => (r && r.ok ? r.value : null)),
+  jdrawDrawingRename: (id, name) => drawValue(ipcRenderer.invoke("drawings:rename", id, name), "Could not rename the drawing."),
+  jdrawDrawingDuplicate: (id) => drawValue(ipcRenderer.invoke("drawings:duplicate", id), "Could not duplicate the drawing."),
+  jdrawDrawingRemove: (id) => drawValue(ipcRenderer.invoke("drawings:remove", id), "Could not delete the drawing."),
   jdrawThumb: (id) => ipcRenderer.invoke("drawing:thumb", id).then((r) => (r && r.ok ? r.value : null)),
   jdrawProjectOf: (id) => ipcRenderer.invoke("drawing:project-of", id).then((r) => (r && r.ok ? r.value : "")),
   jdrawUseInVideo: (id) => ipcRenderer.invoke("draw:to-video", id).then((r) => (r && r.ok ? r.value : null)),
