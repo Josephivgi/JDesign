@@ -190,10 +190,14 @@ export function renderEditor(main, projectId, opts) {
     if (typeof chat !== "undefined" && chat && chat.stage) chat.stage();
   };
   const newDrawing = async () => {
-    const d = await api.jdrawDrawingCreate({ projectId, name: "Drawing " + (st.drawings.length + 1) }).catch(() => null);
-    if (!d || !d.id) return;
-    await loadDrawings();
-    setTab(d.id);
+    try {
+      const d = await api.jdrawDrawingCreate({ projectId, name: "Drawing " + (st.drawings.length + 1) });
+      if (!d || !d.id) throw new Error("The drawing could not be created.");
+      await loadDrawings();
+      setTab(d.id);
+    } catch (error) {
+      toast(errorText(error), true);
+    }
   };
   const useInVideo = async () => {
     const id = st.tab === "video" ? "" : st.tab;

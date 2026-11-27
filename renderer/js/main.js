@@ -1,7 +1,7 @@
 import { api, store, on, emit, refreshSnapshot, refreshProjects, refreshHarnesses, applyLook, setPrefs } from "./store.js";
 import { wireSessions } from "./sessions.js";
-import { icon, esc, toast, openDialog, closeDialog, confirmDialog, closeMenu, modalOpen, timeAgo, $ } from "./ui.js";
-import { renderHome } from "./pages/home.js";
+import { icon, esc, toast, openDialog, closeDialog, confirmDialog, closeMenu, modalOpen, timeAgo, errorText, $ } from "./ui.js";
+import { renderHome, untitledName } from "./pages/home.js";
 import { renderLibrary } from "./pages/library.js";
 import { renderAgents } from "./pages/agents.js";
 import { renderSettings } from "./pages/settings.js";
@@ -118,6 +118,37 @@ document.addEventListener("click", (event) => {
 
 // ---------- keyboard ----------
 
+let startingDrawing = false;
+
+// Ctrl D and the palette command are global. Inside a project the editor adds
+// the drawing there; anywhere else a drawing needs a new project to live in.
+async function startNewDrawing() {
+  if (store.route.page === "editor" && store.route.projectId) {
+    emit("new-drawing");
+    return;
+  }
+  if (startingDrawing) return;
+  startingDrawing = true;
+  let project = null;
+  try {
+    project = await api.aiProjectCreate({ name: untitledName(), aspectRatio: "16/9", assetIds: [] });
+    let drawing = null;
+    try {
+      drawing = await api.jdrawDrawingCreate({ projectId: project.id, name: "Drawing 1" });
+      if (!drawing || !drawing.id) throw new Error("The drawing could not be created.");
+    } catch (error) {
+      await api.aiProjectDelete({ id: project.id }).catch(() => {});
+      throw error;
+    }
+    await refreshProjects().catch(() => {});
+    navigate("editor", { projectId: project.id, drawingId: drawing.id });
+  } catch (error) {
+    toast(errorText(error), true);
+  } finally {
+    startingDrawing = false;
+  }
+}
+
 function typing() {
   const el = document.activeElement;
   return el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !["checkbox", "radio", "range", "button"].includes(el.type)) || el.isContentEditable);
@@ -131,10 +162,10 @@ document.addEventListener("keydown", (event) => {
     openPalette();
     return;
   }
-  // Ctrl D makes a new drawing inside the open project.
+  // Ctrl D makes a new drawing in the open project, or in a new project.
   if (mod && !event.shiftKey && event.key.toLowerCase() === "d" && !typing()) {
     event.preventDefault();
-    emit("new-drawing");
+    void startNewDrawing();
     return;
   }
   if (mod && event.key === ",") {
@@ -170,6 +201,7 @@ function showShortcuts() {
     ["Anywhere", [
       ["Ctrl K", "Search projects and commands"],
       ["Ctrl N", "Start a new video"],
+      ["Ctrl D", "New drawing"],
       ["Ctrl 1 / 2", "Library, Agents"],
       ["Ctrl ,", "Settings"],
       ["?", "This list"],
@@ -181,7 +213,6 @@ function showShortcuts() {
       ["Ctrl B", "Show or hide the media panel"],
       ["Ctrl J", "Show or hide the chat"],
       ["Ctrl L", "Focus the chat box"],
-      ["Ctrl D", "New drawing"],
       ["Esc in the chat box", "Stop the agent while it works"],
     ]],
   ];
@@ -198,7 +229,7 @@ function openPalette() {
   const projects = store.projects || [];
   const commands = [
     { label: "Start a new video", icon: "plus", kbd: "Ctrl N", run: () => { navigate("home"); setTimeout(() => { const b = $("[data-launch-input]"); if (b) b.focus(); }, 0); } },
-    { label: "New drawing", icon: "pencil", kbd: "Ctrl D", run: () => emit("new-drawing") },
+    { label: "New drawing", icon: "pencil", kbd: "Ctrl D", run: () => { void startNewDrawing(); } },
     { label: "Home", icon: "home", run: () => navigate("home") },
     { label: "Library", icon: "library", kbd: "Ctrl 1", run: () => navigate("library") },
     { label: "Agents", icon: "bot", kbd: "Ctrl 2", run: () => navigate("agents") },

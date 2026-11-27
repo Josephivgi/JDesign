@@ -100,7 +100,7 @@ export function nameFrom(text) {
 }
 
 // "Untitled project", then "Untitled project 2", 3... so blank ones differ.
-function untitledName() {
+export function untitledName() {
   const taken = new Set((store.projects || []).map((p) => p.name));
   if (!taken.has("Untitled project")) return "Untitled project";
   let n = 2;
