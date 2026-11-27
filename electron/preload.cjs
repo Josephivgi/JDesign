@@ -212,9 +212,18 @@ contextBridge.exposeInMainWorld("cutline", {
   jdrawChatImported: (payload) => ipcRenderer.invoke("chats:imported", payload).then((r) => (r && r.ok ? r.value : false)),
   jdrawOpenChat: (payload) => ipcRenderer.invoke("jdraw-open-chat", payload).then((r) => (r && r.ok ? r.value : null)),
   // Drawings inside a project: tabs, cards, migration and history.
-  jdrawAllDrawings: () => ipcRenderer.invoke("drawings:list").then((r) => (r && r.ok ? r.value : [])),
-  projectDrawings: (projectId) => ipcRenderer.invoke("drawings:for-project", projectId).then((r) => (r && r.ok ? r.value : [])),
-  jdrawDrawingCreate: (opts) => ipcRenderer.invoke("drawing:new", opts).then((r) => (r && r.ok ? r.value : null)),
+  jdrawAllDrawings: () => ipcRenderer.invoke("drawings:list").then((r) => {
+    if (r && r.ok) return r.value;
+    throw new Error((r && r.error) || "Drawings could not be read.");
+  }),
+  projectDrawings: (projectId) => ipcRenderer.invoke("drawings:for-project", projectId).then((r) => {
+    if (r && r.ok) return r.value;
+    throw new Error((r && r.error) || "The project's drawings could not be read.");
+  }),
+  jdrawDrawingCreate: (opts) => ipcRenderer.invoke("drawing:new", opts).then((r) => {
+    if (r && r.ok) return r.value;
+    throw new Error((r && r.error) || "The drawing could not be created.");
+  }),
   jdrawThumb: (id) => ipcRenderer.invoke("drawing:thumb", id).then((r) => (r && r.ok ? r.value : null)),
   jdrawProjectOf: (id) => ipcRenderer.invoke("drawing:project-of", id).then((r) => (r && r.ok ? r.value : "")),
   jdrawUseInVideo: (id) => ipcRenderer.invoke("draw:to-video", id).then((r) => (r && r.ok ? r.value : null)),

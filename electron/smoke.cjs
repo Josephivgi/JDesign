@@ -227,6 +227,72 @@ async function runJeditorSmoke(win, opts) {
     report.pages.chat = await waitFor("[data-input]");
     await sleep(1200);
     report.shots.push(await shot("editor"));
+
+    // Ctrl D and the palette command are global: inside the project they add a
+    // drawing there, and outside it they open a new project on a blank drawing.
+    report.newDrawing = await js(`(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const state = async () => {
+        const rawProjects = await window.cutline.aiProjects();
+        const projects = Array.isArray(rawProjects) ? rawProjects : (rawProjects && rawProjects.projects) || [];
+        const drawings = (await window.cutline.jdrawAllDrawings()) || [];
+        return { projects: projects.length, drawings: drawings.length, route: Object.assign({}, window.__jeditor.store.route) };
+      };
+      const pressCtrlD = () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true, cancelable: true }));
+      };
+      const observe = async (before) => {
+        let after = before;
+        const end = Date.now() + 2400;
+        while (Date.now() < end) {
+          await wait(180);
+          after = await state();
+          if (after.projects !== before.projects || after.drawings !== before.drawings) break;
+        }
+        await wait(500);
+        return state();
+      };
+      const brief = (before, after) => ({ projects: [before.projects, after.projects], drawings: [before.drawings, after.drawings], page: after.route.page, drawingId: Boolean(after.route.drawingId) });
+      const outsideOk = (before, after) => after.projects === before.projects + 1 && after.drawings === before.drawings + 1 && after.route.page === 'editor' && Boolean(after.route.projectId) && Boolean(after.route.drawingId);
+
+      const editorBefore = await state();
+      pressCtrlD();
+      const editorAfter = await observe(editorBefore);
+      const editor = {
+        ok: editorAfter.projects === editorBefore.projects && editorAfter.drawings === editorBefore.drawings + 1 && editorAfter.route.page === 'editor' && editorAfter.route.projectId === editorBefore.route.projectId,
+        result: brief(editorBefore, editorAfter),
+      };
+
+      const keyboard = {};
+      for (const page of ['home', 'library', 'agents']) {
+        window.__jeditor.navigate(page);
+        await wait(500);
+        // The shortcut still works while the Home prompt has focus.
+        if (page === 'home') {
+          const box = document.querySelector('[data-launch-input]');
+          if (box) box.focus();
+        }
+        const before = await state();
+        pressCtrlD();
+        const after = await observe(before);
+        keyboard[page] = { ok: outsideOk(before, after), result: brief(before, after) };
+      }
+
+      window.__jeditor.navigate('library');
+      await wait(500);
+      const paletteBefore = await state();
+      document.querySelector('[data-palette]').click();
+      await wait(350);
+      const row = Array.from(document.querySelectorAll('[data-pi]')).find((el) => el.textContent.includes('New drawing'));
+      if (row) row.click();
+      const paletteAfter = await observe(paletteBefore);
+      const palette = { ok: Boolean(row) && outsideOk(paletteBefore, paletteAfter), found: Boolean(row), result: brief(paletteBefore, paletteAfter) };
+
+      window.__jeditor.navigate('editor', { projectId: ${JSON.stringify(projectId)} });
+      await wait(700);
+      return { ok: editor.ok && Object.values(keyboard).every((r) => r.ok) && palette.ok, editor, keyboard, palette };
+    })()`);
+
     // JEDITOR_SMOKE_EVAL=<file.js>: run an async expression from a file in
     // the project page and put what it returns in the report (for checks
     // and UI exploration that the fixed steps do not cover).
@@ -369,7 +435,7 @@ async function runJeditorSmoke(win, opts) {
     const t2 = report.turn2;
     const turn2Ok = !report.handoffPick || Boolean(report.handoffPick.ok && t2 && t2.finished && !t2.stuckStop && t2.users >= 2 && !t2.errors.length && !t2.notice);
     const modelOk = !process.env.JEDITOR_SMOKE_MODEL || Boolean(report.homeModel && report.homeModel.pick && report.homeModel.pick.ok && report.modelCheck && report.modelCheck.ok);
-    report.ok = Boolean(report.booted && pagesOk && pickersOk && turnOk && turn2Ok && modelOk && (!report.market || report.market.ok) && report.libraryProtocol && report.libraryProtocol.ok && report.draw && report.draw.ok && report.railSwitch && !report.snapshotError && !errors.length && report.title === "JDesign");
+    report.ok = Boolean(report.booted && pagesOk && pickersOk && turnOk && turn2Ok && modelOk && report.newDrawing && report.newDrawing.ok && (!report.market || report.market.ok) && report.libraryProtocol && report.libraryProtocol.ok && report.draw && report.draw.ok && report.railSwitch && !report.snapshotError && !errors.length && report.title === "JDesign");
     process.stdout.write(JSON.stringify(report) + "\n");
     app.exit(report.ok ? 0 : 2);
   } catch (error) {

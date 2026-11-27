@@ -146,7 +146,14 @@ export function renderEditor(main, projectId, opts) {
   // ---------- artifact tabs: Video plus one tab per drawing ----------
   const hasVideoContent = () => !!(st.project && ((st.project.assets || []).length || projectRenders(st.project).length));
   const loadDrawings = async () => {
-    st.drawings = (await api.projectDrawings(projectId).catch(() => [])) || [];
+    try {
+      st.drawings = (await api.projectDrawings(projectId)) || [];
+      st.drawingsReadFailed = false;
+    } catch (error) {
+      st.drawings = st.drawings || [];
+      if (!st.drawingsReadFailed) toast(errorText(error), true);
+      st.drawingsReadFailed = true;
+    }
     st.canUndoDraw = await api.jdrawCanUndoTurn(projectId).catch(() => false);
   };
   const paintArtTabs = () => {
@@ -190,10 +197,14 @@ export function renderEditor(main, projectId, opts) {
     if (typeof chat !== "undefined" && chat && chat.stage) chat.stage();
   };
   const newDrawing = async () => {
-    const d = await api.jdrawDrawingCreate({ projectId, name: "Drawing " + (st.drawings.length + 1) }).catch(() => null);
-    if (!d || !d.id) return;
-    await loadDrawings();
-    setTab(d.id);
+    try {
+      const d = await api.jdrawDrawingCreate({ projectId, name: "Drawing " + (st.drawings.length + 1) });
+      if (!d || !d.id) throw new Error("The drawing could not be created.");
+      await loadDrawings();
+      setTab(d.id);
+    } catch (error) {
+      toast(errorText(error), true);
+    }
   };
   const useInVideo = async () => {
     const id = st.tab === "video" ? "" : st.tab;
