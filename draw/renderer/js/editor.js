@@ -48,6 +48,7 @@
       this.id = id;
       this.doc = null;
       this.meta = null;
+      this.nameDirty = false;
       this.selection = [];
       this.activeLayerId = null;
       this.canUndo = false;
@@ -183,8 +184,11 @@
       const name = top.querySelector(".name-input");
       name.value = this.meta.name;
       name.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter" || e.key === "Escape") { if (e.key === "Escape") name.value = this.meta.name; name.blur(); } });
+      name.addEventListener("input", () => { this.nameDirty = true; });
       name.addEventListener("blur", async () => {
-        if (name.value.trim() === this.meta.name) return;
+        const dirty = this.nameDirty;
+        this.nameDirty = false;
+        if (!dirty || name.value.trim() === this.meta.name) { name.value = this.meta.name; return; }
         this.meta.name = await jdraw.call("drawings:rename", this.id, name.value);
         name.value = this.meta.name;
       });
@@ -954,7 +958,7 @@
       if (!row) return this.meta.name;
       this.meta = Object.assign({}, this.meta, row);
       const input = this.root.querySelector(".name-input");
-      if (input && document.activeElement !== input) input.value = this.meta.name;
+      if (input && !this.nameDirty) input.value = this.meta.name;
       return this.meta.name;
     }
 
