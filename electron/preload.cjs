@@ -212,7 +212,10 @@ contextBridge.exposeInMainWorld("cutline", {
   jdrawChatImported: (payload) => ipcRenderer.invoke("chats:imported", payload).then((r) => (r && r.ok ? r.value : false)),
   jdrawOpenChat: (payload) => ipcRenderer.invoke("jdraw-open-chat", payload).then((r) => (r && r.ok ? r.value : null)),
   // Drawings inside a project: tabs, cards, migration and history.
-  jdrawAllDrawings: () => ipcRenderer.invoke("drawings:list").then((r) => (r && r.ok ? r.value : [])),
+  jdrawAllDrawings: () => ipcRenderer.invoke("drawings:list").then((r) => {
+    if (r && r.ok) return r.value;
+    throw new Error((r && r.error) || "Drawings could not be read.");
+  }),
   projectDrawings: (projectId) => ipcRenderer.invoke("drawings:for-project", projectId).then((r) => (r && r.ok ? r.value : [])),
   jdrawDrawingCreate: (opts) => ipcRenderer.invoke("drawing:new", opts).then((r) => {
     if (r && r.ok) return r.value;

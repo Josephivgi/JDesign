@@ -109,6 +109,8 @@ export function untitledName() {
 }
 
 const isEmptyProject = (p) => !(p.assets || []).length && !(p.state && p.state.renders && Object.keys(p.state.renders).length);
+const hasDrawings = (p) => (store.drawingsAll || []).some((d) => d && d.projectId === p.id);
+const isCleanupEmptyProject = (p) => isEmptyProject(p) && !hasDrawings(p);
 
 // "/animate a logo sting" names the project "a logo sting", and a bare
 // "/animate" takes the command's label, never the slash text.
@@ -148,11 +150,11 @@ export function renderHome(main) {
         '<button type="button" class="btn btn-sm btn-primary" data-setup>Set up an agent</button></div>';
     // Returning people see their own work first; the design gallery follows.
     const projectsFirst = projects.length > 0;
-    const empties = projects.filter(isEmptyProject);
+    const empties = Array.isArray(store.drawingsAll) ? projects.filter(isCleanupEmptyProject) : [];
     const projectsHtml =
       '<div class="section-title">Projects <span class="count">' + projects.length + "</span>" +
       '<span class="grow"></span>' +
-      (empties.length > 1 ? '<button type="button" class="btn btn-sm btn-ghost" data-clean-empty title="Delete projects that have no media and no video">' + icon("trash", "i-sm") + "Remove " + empties.length + " empty</button>" : "") +
+      (empties.length > 1 ? '<button type="button" class="btn btn-sm btn-ghost" data-clean-empty title="Delete projects that have no media, video, or drawings">' + icon("trash", "i-sm") + "Remove " + empties.length + " empty</button>" : "") +
       (projects.length > SEARCH_AT
         ? '<div class="search proj-search">' + icon("search") + '<input class="input" data-proj-q placeholder="Search projects" aria-label="Search projects" value="' + esc(list.query) + '"></div>' +
           '<button type="button" class="picker" data-proj-sort title="Sort projects">' + icon("sort", "i-sm") + "<span>Sort: " + esc(list.sort === "name" ? "Name" : "Recent") + "</span>" + icon("chevDown", "i-sm chev") + "</button>"
@@ -506,8 +508,19 @@ export function renderHome(main) {
     );
     const clean = inner.querySelector("[data-clean-empty]");
     if (clean) clean.addEventListener("click", async () => {
-      const empties = (store.projects || []).filter(isEmptyProject);
-      const ok = await confirmDialog({ title: "Remove " + empties.length + " empty projects?", body: "These projects have no media and no video: " + empties.slice(0, 8).map((p) => p.name).join(", ") + (empties.length > 8 ? ", and more" : "") + ". Their chats are removed too.", confirm: "Remove", danger: true });
+      const drawings = await api.jdrawAllDrawings().catch(() => null);
+      if (!drawings) {
+        toast("Drawings could not be checked, so nothing was removed.", true);
+        return;
+      }
+      store.drawingsAll = drawings;
+      const empties = (store.projects || []).filter(isCleanupEmptyProject);
+      if (!empties.length) {
+        paint();
+        toast("No empty projects to remove", "info");
+        return;
+      }
+      const ok = await confirmDialog({ title: "Remove " + empties.length + " empty projects?", body: "These projects have no media, video, or drawings: " + empties.slice(0, 8).map((p) => p.name).join(", ") + (empties.length > 8 ? ", and more" : "") + ". Their chats are removed too.", confirm: "Remove", danger: true });
       if (!ok) return;
       for (const p of empties) await api.aiProjectDelete({ id: p.id }).catch((e) => toast(errorText(e), true));
       await refreshProjects();
