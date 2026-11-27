@@ -239,7 +239,6 @@ async function runJeditorSmoke(win, opts) {
         return { projects: projects.length, drawings: drawings.length, route: Object.assign({}, window.__jeditor.store.route) };
       };
       const pressCtrlD = () => {
-        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true, cancelable: true }));
       };
       const observe = async (before) => {
@@ -268,6 +267,11 @@ async function runJeditorSmoke(win, opts) {
       for (const page of ['home', 'library', 'agents']) {
         window.__jeditor.navigate(page);
         await wait(500);
+        // The shortcut still works while the Home prompt has focus.
+        if (page === 'home') {
+          const box = document.querySelector('[data-launch-input]');
+          if (box) box.focus();
+        }
         const before = await state();
         pressCtrlD();
         const after = await observe(before);

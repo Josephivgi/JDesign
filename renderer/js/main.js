@@ -163,7 +163,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   // Ctrl D makes a new drawing in the open project, or in a new project.
-  if (mod && !event.shiftKey && event.key.toLowerCase() === "d" && !typing()) {
+  if (mod && !event.shiftKey && event.key.toLowerCase() === "d") {
     event.preventDefault();
     void startNewDrawing();
     return;
