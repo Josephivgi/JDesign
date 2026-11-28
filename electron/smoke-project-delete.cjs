@@ -92,6 +92,21 @@ function seedFixture(dataRoot, workspaceId, name, opts) {
   }
 }
 
+function holdWriteLock(file) {
+  const db = new DatabaseSync(file, { timeout: 0 });
+  db.exec("BEGIN IMMEDIATE");
+  return {
+    close() {
+      try {
+        if (db.isTransaction) db.exec("ROLLBACK");
+      } catch {}
+      try {
+        if (db.isOpen) db.close();
+      } catch {}
+    },
+  };
+}
+
 function createTrigger(file, name, table) {
   const db = new DatabaseSync(file);
   try {
@@ -113,8 +128,11 @@ function dropTrigger(file, name) {
 async function verifyIpcDelete(root, workspaceId, js) {
   const fixture = seedFixture(root, workspaceId, "Smoke delete");
   fixture.close();
-  const trigger = "smoke_fail_project_chat_delete";
-  createTrigger(chatsDbPath(root), trigger, "editor_chats");
+  // Hold the chat database's writer lock instead of installing a trigger in
+  // the profile under test: even an interrupted smoke cannot leave persistent
+  // schema damage behind. The lock is real contention and makes the cascade's
+  // chat write fail through the same SQLite error path.
+  const lock = holdWriteLock(chatsDbPath(root));
   let failure = "";
   try {
     failure = await js(
@@ -123,7 +141,7 @@ async function verifyIpcDelete(root, workspaceId, js) {
     assert(String(failure).startsWith("rejected:"), "forced IPC deletion did not reject: " + failure);
     assertCounts(fixture, { projects: 1, chats: 1, activeChats: 1, drawings: 1, drawingChats: 1 }, "forced IPC deletion");
   } finally {
-    dropTrigger(chatsDbPath(root), trigger);
+    lock.close();
   }
 
   const success = await js(
