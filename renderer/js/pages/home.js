@@ -554,7 +554,7 @@ export function renderHome(main) {
           { label: "Delete project", icon: "trash", danger: true, onSelect: async () => {
             // Deleting a project deletes its drawings too, so the ask names them.
             const ds = await api.projectDrawings(project.id).catch(() => []);
-            const named = ds.length ? " Its " + (ds.length === 1 ? "drawing" : "drawings") + " go with it: " + ds.slice(0, 6).map((d) => d.name).join(", ") + (ds.length > 6 ? ", and more" : "") + "." : "";
+            const named = ds.length ? " Its " + (ds.length === 1 ? "drawing goes" : "drawings go") + " with it: " + ds.slice(0, 6).map((d) => d.name).join(", ") + (ds.length > 6 ? ", and more" : "") + "." : "";
             const ok = await confirmDialog({ title: "Delete " + project.name + "?", body: "The project and its chats are removed." + named + " Media stays in your library, and renders stay until you clean them up.", confirm: "Delete", danger: true });
             if (!ok) return;
             const failure = await api.aiProjectDelete({ id: project.id }).then(() => null, (e) => e);
