@@ -186,3 +186,26 @@ test("agent project deletion uses the live drawing hooks when provided", async (
     cleanupFixture(fixture);
   }
 });
+
+
+test("orphan cleanup leaves dependent data alone when the project database is missing or empty", () => {
+  for (const mode of ["missing", "empty"]) {
+    const fixture = seedFixture("jdesign-delete-no-project-db-");
+    try {
+      projects.closeAiProjectStores();
+      const file = projectsDbPath(fixture.dataRoot);
+      if (mode === "missing") fs.rmSync(file, { force: true });
+      else fs.writeFileSync(file, "");
+
+      const result = cleanupOrphanedProjectData(fixture.dataRoot);
+
+      assert.equal(result.skipped, true);
+      assert.deepEqual(result.counts, { drawings: 0, drawingChats: 0, chats: 0 });
+      assert.equal(count(chatsDbPath(fixture.dataRoot), "SELECT COUNT(*) AS n FROM editor_chats WHERE project_id = ?", fixture.project.id), 1);
+      assert.equal(count(drawDbPath(fixture.dataRoot), "SELECT COUNT(*) AS n FROM drawings WHERE project_id = ?", fixture.project.id), 1);
+      assert.equal(count(drawDbPath(fixture.dataRoot), "SELECT COUNT(*) AS n FROM chat_threads WHERE drawing_id = ?", fixture.drawing.id), 1);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  }
+});
