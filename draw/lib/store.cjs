@@ -95,7 +95,10 @@ class DrawingStore {
   }
 
   setProject(id, projectId) {
-    this.db.prepare("UPDATE drawings SET project_id = ? WHERE id = ?").run(String(projectId || ""), String(id || ""));
+    const key = String(projectId || "");
+    this.db.prepare("UPDATE drawings SET project_id = ? WHERE id = ?").run(key, String(id || ""));
+    const entry = this.open.get(String(id || ""));
+    if (entry) entry.projectId = key;
   }
 
   // Saved before the Projects page existed: no project owns them yet.
@@ -125,24 +128,18 @@ class DrawingStore {
     this.db.prepare("DELETE FROM chat_threads WHERE drawing_id = ?").run(id);
   }
 
-  removeProjectDrawings(projectId) {
+  prepareProjectDrawingsForDelete(projectId) {
+    const rows = this.listByProject(projectId);
+    for (const row of rows) this.saveNow(row.id);
+    return rows.map((row) => row.id);
+  }
+
+  discardProjectDrawings(projectId) {
     const key = String(projectId || "");
-    const rows = this.listByProject(key);
-    if (!rows.length) return 0;
-    // Flush open documents before the delete begins; a failed save must not
-    // turn into a half-deleted project cleanup.
-    for (const row of rows) this.close(row.id);
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      this.db.prepare("DELETE FROM chat_threads WHERE drawing_id IN (SELECT id FROM drawings WHERE project_id = ?)").run(key);
-      const result = this.db.prepare("DELETE FROM drawings WHERE project_id = ?").run(key);
-      this.db.exec("COMMIT");
-      return Number(result.changes) || 0;
-    } catch (error) {
-      try {
-        this.db.exec("ROLLBACK");
-      } catch {}
-      throw error;
+    for (const [id, entry] of this.open) {
+      if ((entry.projectId || "") !== key) continue;
+      clearTimeout(entry.timer);
+      this.open.delete(id);
     }
   }
 
@@ -164,9 +161,9 @@ class DrawingStore {
   load(id) {
     let entry = this.open.get(id);
     if (entry) return entry;
-    const row = this.db.prepare("SELECT doc FROM drawings WHERE id = ?").get(id);
+    const row = this.db.prepare("SELECT doc, project_id FROM drawings WHERE id = ?").get(id);
     if (!row) throw new Error("That drawing no longer exists.");
-    entry = { doc: JSON.parse(row.doc), undo: [], redo: [], timer: null };
+    entry = { doc: JSON.parse(row.doc), undo: [], redo: [], timer: null, projectId: row.project_id || "" };
     this.open.set(id, entry);
     return entry;
   }

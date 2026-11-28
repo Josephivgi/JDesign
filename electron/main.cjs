@@ -315,7 +315,10 @@ function attachMainIpc() {
   attachEditorChatIpc({ dataRoot });
   attachAiProjectsIpc({
     dataRoot,
-    deleteDrawingsForProject: (projectId) => (drawStudio ? drawStudio.deleteDrawingsForProject(projectId) : 0),
+    prepareDrawingsForProjectDelete: (projectId) => (drawStudio ? drawStudio.prepareDrawingsForProjectDelete(projectId) : []),
+    projectDrawingsDeleted: (projectId) => {
+      if (drawStudio) drawStudio.projectDrawingsDeleted(projectId);
+    },
   });
   require("./presets-ipc.cjs").attachPresetsIpc({ dataRoot, appRoot: path.join(__dirname, "..") });
   const { attachJeditorIpc } = require("./jeditor-ipc.cjs");

@@ -3,6 +3,7 @@
 const { ipcMain } = require("electron");
 const projects = require("../lib/ai-projects");
 const workspaceStore = require("../lib/workspace-store");
+const { deleteProjectCascade } = require("../lib/project-delete");
 
 function attachAiProjectsIpc(host) {
   const dataRoot = host.dataRoot;
@@ -179,12 +180,13 @@ function attachAiProjectsIpc(host) {
   register("ai-project-delete", async (_event, payload) => {
     const body = payload || {};
     const found = await projectInActiveWorkspace(body.id);
-    // Dependents go first: when any cleanup fails the project row stays, so
-    // drawings and chats never point at a project the app no longer shows.
-    if (typeof host.deleteDrawingsForProject === "function") host.deleteDrawingsForProject(body.id);
-    const { deleteChatsForProject } = require("../lib/editor-chats");
-    deleteChatsForProject(dataRoot(), found.workspace.id, body.id);
-    return projects.deleteProject(dataRoot(), body.id);
+    return deleteProjectCascade({
+      dataRoot: dataRoot(),
+      workspaceId: found.workspace.id,
+      projectId: body.id,
+      prepareDrawings: host.prepareDrawingsForProjectDelete,
+      drawingsDeleted: host.projectDrawingsDeleted,
+    });
   });
 }
 
