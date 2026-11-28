@@ -125,6 +125,27 @@ class DrawingStore {
     this.db.prepare("DELETE FROM chat_threads WHERE drawing_id = ?").run(id);
   }
 
+  removeProjectDrawings(projectId) {
+    const key = String(projectId || "");
+    const rows = this.listByProject(key);
+    if (!rows.length) return 0;
+    // Flush open documents before the delete begins; a failed save must not
+    // turn into a half-deleted project cleanup.
+    for (const row of rows) this.close(row.id);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("DELETE FROM chat_threads WHERE drawing_id IN (SELECT id FROM drawings WHERE project_id = ?)").run(key);
+      const result = this.db.prepare("DELETE FROM drawings WHERE project_id = ?").run(key);
+      this.db.exec("COMMIT");
+      return Number(result.changes) || 0;
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {}
+      throw error;
+    }
+  }
+
   duplicate(id) {
     const row = this.db.prepare("SELECT * FROM drawings WHERE id = ?").get(id);
     if (!row) throw new Error("That drawing no longer exists.");

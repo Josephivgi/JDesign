@@ -557,8 +557,12 @@ export function renderHome(main) {
             const named = ds.length ? " Its " + (ds.length === 1 ? "drawing" : "drawings") + " go with it: " + ds.slice(0, 6).map((d) => d.name).join(", ") + (ds.length > 6 ? ", and more" : "") + "." : "";
             const ok = await confirmDialog({ title: "Delete " + project.name + "?", body: "The project and its chats are removed." + named + " Media stays in your library, and renders stay until you clean them up.", confirm: "Delete", danger: true });
             if (!ok) return;
-            await api.aiProjectDelete({ id: project.id }).catch((e) => toast(errorText(e), true));
+            const failure = await api.aiProjectDelete({ id: project.id }).then(() => null, (e) => e);
             await refreshProjects();
+            if (failure) {
+              toast(errorText(failure), true);
+              return;
+            }
             toast("Project deleted");
           } },
         ], { align: "end" });

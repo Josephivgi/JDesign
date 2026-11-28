@@ -179,21 +179,12 @@ function attachAiProjectsIpc(host) {
   register("ai-project-delete", async (_event, payload) => {
     const body = payload || {};
     const found = await projectInActiveWorkspace(body.id);
-    const result = projects.deleteProject(dataRoot(), body.id);
-    // A project's drawings go with it; the renderer already named them in the
-    // confirmation the person said yes to.
-    try {
-      if (typeof host.deleteDrawingsForProject === "function") host.deleteDrawingsForProject(body.id);
-    } catch {
-      /* the confirmed project deletion stays authoritative */
-    }
-    try {
-      const { deleteChatsForProject } = require("../lib/editor-chats");
-      deleteChatsForProject(dataRoot(), found.workspace.id, body.id);
-    } catch {
-      /* the confirmed project deletion stays authoritative */
-    }
-    return result;
+    // Dependents go first: when any cleanup fails the project row stays, so
+    // drawings and chats never point at a project the app no longer shows.
+    if (typeof host.deleteDrawingsForProject === "function") host.deleteDrawingsForProject(body.id);
+    const { deleteChatsForProject } = require("../lib/editor-chats");
+    deleteChatsForProject(dataRoot(), found.workspace.id, body.id);
+    return projects.deleteProject(dataRoot(), body.id);
   });
 }
 
