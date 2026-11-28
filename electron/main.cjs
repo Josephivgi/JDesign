@@ -3614,7 +3614,7 @@ async function drawProbe() {
 }
 
 async function runSmoke(win) {
-  return require("./smoke.cjs").runJeditorSmoke(win, { app, checkLibraryProtocol, drawProbe });
+  return require("./smoke.cjs").runJeditorSmoke(win, { app, checkLibraryProtocol, drawProbe, dataRoot });
 }
 
 ipcMain.handle("add-card-image", async (_event, payload) => {

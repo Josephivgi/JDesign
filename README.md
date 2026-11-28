@@ -75,7 +75,7 @@ Record Center, the card studio, and the manual timeline editor from Cutline Desk
 
 ## Tests
 
-`npm test` runs targeted regression tests. There is no broad test suite; four commands cover what a change can break, in this order:
+There is no test suite. Four commands cover what a change can break, in this order:
 
 ```
 npm run check:mcp          # the tool surface and the skills
