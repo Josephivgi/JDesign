@@ -3,6 +3,7 @@
 const { ipcMain } = require("electron");
 const projects = require("../lib/ai-projects");
 const workspaceStore = require("../lib/workspace-store");
+const { deleteProjectCascade } = require("../lib/project-delete");
 
 function attachAiProjectsIpc(host) {
   const dataRoot = host.dataRoot;
@@ -179,21 +180,13 @@ function attachAiProjectsIpc(host) {
   register("ai-project-delete", async (_event, payload) => {
     const body = payload || {};
     const found = await projectInActiveWorkspace(body.id);
-    const result = projects.deleteProject(dataRoot(), body.id);
-    // A project's drawings go with it; the renderer already named them in the
-    // confirmation the person said yes to.
-    try {
-      if (typeof host.deleteDrawingsForProject === "function") host.deleteDrawingsForProject(body.id);
-    } catch {
-      /* the confirmed project deletion stays authoritative */
-    }
-    try {
-      const { deleteChatsForProject } = require("../lib/editor-chats");
-      deleteChatsForProject(dataRoot(), found.workspace.id, body.id);
-    } catch {
-      /* the confirmed project deletion stays authoritative */
-    }
-    return result;
+    return deleteProjectCascade({
+      dataRoot: dataRoot(),
+      workspaceId: found.workspace.id,
+      projectId: body.id,
+      prepareDrawings: host.prepareDrawingsForProjectDelete,
+      drawingsDeleted: host.projectDrawingsDeleted,
+    });
   });
 }
 

@@ -95,7 +95,10 @@ class DrawingStore {
   }
 
   setProject(id, projectId) {
-    this.db.prepare("UPDATE drawings SET project_id = ? WHERE id = ?").run(String(projectId || ""), String(id || ""));
+    const key = String(projectId || "");
+    this.db.prepare("UPDATE drawings SET project_id = ? WHERE id = ?").run(key, String(id || ""));
+    const entry = this.open.get(String(id || ""));
+    if (entry) entry.projectId = key;
   }
 
   // Saved before the Projects page existed: no project owns them yet.
@@ -125,6 +128,21 @@ class DrawingStore {
     this.db.prepare("DELETE FROM chat_threads WHERE drawing_id = ?").run(id);
   }
 
+  prepareProjectDrawingsForDelete(projectId) {
+    const rows = this.listByProject(projectId);
+    for (const row of rows) this.saveNow(row.id);
+    return rows.map((row) => row.id);
+  }
+
+  discardProjectDrawings(projectId) {
+    const key = String(projectId || "");
+    for (const [id, entry] of this.open) {
+      if ((entry.projectId || "") !== key) continue;
+      clearTimeout(entry.timer);
+      this.open.delete(id);
+    }
+  }
+
   duplicate(id) {
     const row = this.db.prepare("SELECT * FROM drawings WHERE id = ?").get(id);
     if (!row) throw new Error("That drawing no longer exists.");
@@ -143,9 +161,9 @@ class DrawingStore {
   load(id) {
     let entry = this.open.get(id);
     if (entry) return entry;
-    const row = this.db.prepare("SELECT doc FROM drawings WHERE id = ?").get(id);
+    const row = this.db.prepare("SELECT doc, project_id FROM drawings WHERE id = ?").get(id);
     if (!row) throw new Error("That drawing no longer exists.");
-    entry = { doc: JSON.parse(row.doc), undo: [], redo: [], timer: null };
+    entry = { doc: JSON.parse(row.doc), undo: [], redo: [], timer: null, projectId: row.project_id || "" };
     this.open.set(id, entry);
     return entry;
   }

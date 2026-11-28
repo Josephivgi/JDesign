@@ -1475,11 +1475,10 @@ async function init(opts) {
     looseDrawings: () => store.looseDrawings(),
     setDrawingProject: (id, projectId) => store.setProject(id, projectId),
     drawingsForProject: (projectId) => store.listByProject(projectId),
-    deleteDrawingsForProject: (projectId) => {
-      const rows = store.listByProject(projectId);
-      for (const d of rows) store.remove(d.id);
-      if (rows.length) drawingsChanged();
-      return rows.length;
+    prepareDrawingsForProjectDelete: (projectId) => store.prepareProjectDrawingsForDelete(projectId),
+    projectDrawingsDeleted: (projectId) => {
+      store.discardProjectDrawings(projectId);
+      drawingsChanged();
     },
     projectOf: (id) => store.projectOf(id),
     // Gate and undo for project chat turns.

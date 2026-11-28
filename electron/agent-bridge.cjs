@@ -558,7 +558,10 @@ function createAgentBridge(host) {
     ];
   }
 
-  const fileSpecs = agentToolSpecs();
+  const fileSpecs = agentToolSpecs({
+    prepareDrawings: host.prepareDrawingsForProjectDelete,
+    drawingsDeleted: host.projectDrawingsDeleted,
+  });
   const liveSpecs = electronToolSpecs();
   const allSpecs = fileSpecs.concat(liveSpecs);
   const mutating = new Set(MUTATING_BASE);

@@ -315,7 +315,10 @@ function attachMainIpc() {
   attachEditorChatIpc({ dataRoot });
   attachAiProjectsIpc({
     dataRoot,
-    deleteDrawingsForProject: (projectId) => (drawStudio ? drawStudio.deleteDrawingsForProject(projectId) : 0),
+    prepareDrawingsForProjectDelete: (projectId) => (drawStudio ? drawStudio.prepareDrawingsForProjectDelete(projectId) : []),
+    projectDrawingsDeleted: (projectId) => {
+      if (drawStudio) drawStudio.projectDrawingsDeleted(projectId);
+    },
   });
   require("./presets-ipc.cjs").attachPresetsIpc({ dataRoot, appRoot: path.join(__dirname, "..") });
   const { attachJeditorIpc } = require("./jeditor-ipc.cjs");
@@ -357,6 +360,10 @@ function attachMainIpc() {
     drawMcp: (ids) => (drawStudio && typeof drawStudio.mcpEntryFor === "function" ? drawStudio.mcpEntryFor(ids) : null),
     drawTurnChanged: (projectId) => Promise.resolve(drawStudio && typeof drawStudio.turnChangedDocs === "function" ? drawStudio.turnChangedDocs(projectId) : []),
     drawCheckDrawing: (docId, o) => Promise.resolve(drawStudio && typeof drawStudio.checkProjectDrawing === "function" ? drawStudio.checkProjectDrawing(docId, o) : null),
+    prepareDrawingsForProjectDelete: (projectId) => (drawStudio ? drawStudio.prepareDrawingsForProjectDelete(projectId) : []),
+    projectDrawingsDeleted: (projectId) => {
+      if (drawStudio) drawStudio.projectDrawingsDeleted(projectId);
+    },
   });
 }
 
@@ -2378,6 +2385,11 @@ app.whenReady().then(async () => {
       },
     });
     if (DRAW_SMOKE) drawStudio.show(true);
+    try {
+      require("../lib/project-delete").cleanupOrphanedProjectData(dataRoot());
+    } catch (error) {
+      logCrash("orphaned project cleanup", (error && (error.stack || error.message)) || error);
+    }
     void migrateLooseDrawings().catch((error) => logCrash("drawing migration", (error && (error.stack || error.message)) || error));
   } catch (error) {
     logCrash("draw init", (error && (error.stack || error.message)) || error);
@@ -3602,7 +3614,7 @@ async function drawProbe() {
 }
 
 async function runSmoke(win) {
-  return require("./smoke.cjs").runJeditorSmoke(win, { app, checkLibraryProtocol, drawProbe });
+  return require("./smoke.cjs").runJeditorSmoke(win, { app, checkLibraryProtocol, drawProbe, dataRoot });
 }
 
 ipcMain.handle("add-card-image", async (_event, payload) => {

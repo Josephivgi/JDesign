@@ -70,6 +70,11 @@ async function runJeditorSmoke(win, opts) {
     report.railSwitch = await js("!!document.querySelector('.rail [data-nav=home]') && !document.querySelector('.rail [data-studio]')");
     report.snapshotError = await js("window.cutline.snapshot().then(() => '').catch((e) => String(e && e.message || e))");
     report.counts = await js("Promise.all([window.cutline.snapshot(), window.cutline.aiProjects()]).then(([s, p]) => ({ library: ((s && s.workspace && s.workspace.library) || []).length, projects: (Array.isArray(p) ? p : (p && p.projects) || []).length }))").catch((e) => ({ error: String(e.message || e) }));
+    try {
+      report.projectDelete = await require("./smoke-project-delete.cjs").verifyProjectDelete({ dataRoot: opts.dataRoot(), js });
+    } catch (error) {
+      report.projectDelete = { ok: false, error: String((error && error.message) || error) };
+    }
     if (process.env.JEDITOR_SMOKE_IMPORT) {
       // Copies the real Cutline Desktop library into this (scratch) data root.
       const t0 = Date.now();
@@ -369,7 +374,7 @@ async function runJeditorSmoke(win, opts) {
     const t2 = report.turn2;
     const turn2Ok = !report.handoffPick || Boolean(report.handoffPick.ok && t2 && t2.finished && !t2.stuckStop && t2.users >= 2 && !t2.errors.length && !t2.notice);
     const modelOk = !process.env.JEDITOR_SMOKE_MODEL || Boolean(report.homeModel && report.homeModel.pick && report.homeModel.pick.ok && report.modelCheck && report.modelCheck.ok);
-    report.ok = Boolean(report.booted && pagesOk && pickersOk && turnOk && turn2Ok && modelOk && (!report.market || report.market.ok) && report.libraryProtocol && report.libraryProtocol.ok && report.draw && report.draw.ok && report.railSwitch && !report.snapshotError && !errors.length && report.title === "JDesign");
+    report.ok = Boolean(report.booted && pagesOk && pickersOk && turnOk && turn2Ok && modelOk && (!report.market || report.market.ok) && report.libraryProtocol && report.libraryProtocol.ok && report.draw && report.draw.ok && report.railSwitch && report.projectDelete && report.projectDelete.ok && !report.snapshotError && !errors.length && report.title === "JDesign");
     process.stdout.write(JSON.stringify(report) + "\n");
     app.exit(report.ok ? 0 : 2);
   } catch (error) {
