@@ -139,3 +139,32 @@ test("successful cascade deletes the project, chats, drawings, and drawing chats
     cleanupFixture(fixture);
   }
 });
+
+
+test("agent project deletion uses the live drawing hooks when provided", async () => {
+  const fixture = seedFixture("jdesign-delete-agent-hooks-");
+  try {
+    const events = [];
+    const spec = require("../lib/agent-tools")
+      .agentToolSpecs({
+        prepareDrawings(projectId) {
+          events.push(["prepare", projectId]);
+        },
+        drawingsDeleted(projectId) {
+          events.push(["deleted", projectId]);
+        },
+      })
+      .find((tool) => tool.name === "jeditor_delete_project");
+
+    const result = await spec.run({ dataRoot: fixture.dataRoot }, { projectId: fixture.project.id, confirm: true });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(events, [
+      ["prepare", fixture.project.id],
+      ["deleted", fixture.project.id],
+    ]);
+    assert.deepEqual(countsFor(fixture), { projects: 0, chats: 0, activeChats: 0, drawings: 0, drawingChats: 0 });
+  } finally {
+    cleanupFixture(fixture);
+  }
+});

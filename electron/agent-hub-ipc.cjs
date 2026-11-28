@@ -46,7 +46,14 @@ function attachAgentHub(options) {
       }
     }) || null;
 
-  const bridge = createAgentBridge({ dataRoot, appRoot, windows, mainWindow });
+  const bridge = createAgentBridge({
+    dataRoot,
+    appRoot,
+    windows,
+    mainWindow,
+    prepareDrawingsForProjectDelete: options.prepareDrawingsForProjectDelete,
+    projectDrawingsDeleted: options.projectDrawingsDeleted,
+  });
   const acp = createAcpHost({
     dataRoot,
     appRoot,

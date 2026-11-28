@@ -360,6 +360,10 @@ function attachMainIpc() {
     drawMcp: (ids) => (drawStudio && typeof drawStudio.mcpEntryFor === "function" ? drawStudio.mcpEntryFor(ids) : null),
     drawTurnChanged: (projectId) => Promise.resolve(drawStudio && typeof drawStudio.turnChangedDocs === "function" ? drawStudio.turnChangedDocs(projectId) : []),
     drawCheckDrawing: (docId, o) => Promise.resolve(drawStudio && typeof drawStudio.checkProjectDrawing === "function" ? drawStudio.checkProjectDrawing(docId, o) : null),
+    prepareDrawingsForProjectDelete: (projectId) => (drawStudio ? drawStudio.prepareDrawingsForProjectDelete(projectId) : []),
+    projectDrawingsDeleted: (projectId) => {
+      if (drawStudio) drawStudio.projectDrawingsDeleted(projectId);
+    },
   });
 }
 
