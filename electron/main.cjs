@@ -2385,6 +2385,11 @@ app.whenReady().then(async () => {
       },
     });
     if (DRAW_SMOKE) drawStudio.show(true);
+    try {
+      require("../lib/project-delete").cleanupOrphanedProjectData(dataRoot());
+    } catch (error) {
+      logCrash("orphaned project cleanup", (error && (error.stack || error.message)) || error);
+    }
     void migrateLooseDrawings().catch((error) => logCrash("drawing migration", (error && (error.stack || error.message)) || error));
   } catch (error) {
     logCrash("draw init", (error && (error.stack || error.message)) || error);

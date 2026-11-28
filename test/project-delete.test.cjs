@@ -10,7 +10,7 @@ const projects = require("../lib/ai-projects");
 const chats = require("../lib/editor-chats");
 const { dbPath: chatsDbPath } = require("../lib/editor-chats-store");
 const { dbPath: projectsDbPath } = require("../lib/ai-projects-store");
-const { deleteProjectCascade, drawDbPath } = require("../lib/project-delete");
+const { deleteProjectCascade, cleanupOrphanedProjectData, drawDbPath } = require("../lib/project-delete");
 const { DrawingStore } = require("../draw/lib/store.cjs");
 
 function seedFixture(label) {
@@ -140,6 +140,24 @@ test("successful cascade deletes the project, chats, drawings, and drawing chats
   }
 });
 
+
+test("orphan cleanup removes interrupted deletion leftovers but keeps loose drawings", () => {
+  const fixture = seedFixture("jdesign-delete-orphans-");
+  try {
+    const loose = fixture.store.create({ name: "Loose" });
+    const db = new DatabaseSync(projectsDbPath(fixture.dataRoot), { enableForeignKeyConstraints: false });
+    db.prepare("DELETE FROM ai_video_projects WHERE id = ?").run(fixture.project.id);
+    db.close();
+
+    const result = cleanupOrphanedProjectData(fixture.dataRoot);
+
+    assert.deepEqual(result.counts, { drawings: 1, drawingChats: 1, chats: 1 });
+    assert.deepEqual(countsFor(fixture), { projects: 0, chats: 0, activeChats: 0, drawings: 0, drawingChats: 0 });
+    assert.equal(count(drawDbPath(fixture.dataRoot), "SELECT COUNT(*) AS n FROM drawings WHERE id = ?", loose.id), 1);
+  } finally {
+    cleanupFixture(fixture);
+  }
+});
 
 test("agent project deletion uses the live drawing hooks when provided", async () => {
   const fixture = seedFixture("jdesign-delete-agent-hooks-");
